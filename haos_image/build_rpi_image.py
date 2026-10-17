@@ -39,7 +39,7 @@ from orchestra.agent.framework import GrandpaCommissioningAgent
 from orchestra.config import OrchestraConfig
 from orchestra.orchestrator import OrchestraEngine
 
-OFFICIAL_HAOS_VERSION = "18.3"
+OFFICIAL_HAOS_VERSION = "15.2"
 
 BOARD_RELEASE_URLS: dict[str, str] = {
     "rpi5-64": (
@@ -323,11 +323,9 @@ def inject_boot_overlay_with_mtools(
         if res.returncode == 0 and "Orchestra Hardware Tuning" not in res.stdout:
             if board == "rpi5-64":
                 tuning_snippet = (
-                    "\n\n# Zenith Orchestra Hardware Tuning (Raspberry Pi 5 BCM2712 / RP1 / PCIe)\n"
-                    "dtparam=uart0=on\n"
+                    "\n\n# Zenith Orchestra Hardware Tuning (Raspberry Pi 5 BCM2712 / RP1)\n"
                     "dtparam=i2c_arm=on\n"
                     "dtparam=spi=on\n"
-                    "dtparam=pciex1=on\n"
                 )
             else:
                 tuning_snippet = (
