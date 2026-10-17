@@ -39,7 +39,7 @@ from orchestra.agent.framework import GrandpaCommissioningAgent
 from orchestra.config import OrchestraConfig
 from orchestra.orchestrator import OrchestraEngine
 
-OFFICIAL_HAOS_VERSION = "13.2"
+OFFICIAL_HAOS_VERSION = "18.3"
 
 BOARD_RELEASE_URLS: dict[str, str] = {
     "rpi5-64": (

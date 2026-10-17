@@ -96,7 +96,7 @@ The user never sets up Home Assistant—the **Orchestra Agent** ([`GrandpaCommis
 
 ## 5. Flashing the Pre-Loaded Raspberry Pi 5 (`rpi5-64`) HAOS Image
 
-The pre-built Home Assistant OS 13.2 (`rpi5-64`) image with all Orchestra modifications pre-loaded is located in [`dist/haos_rpi5-64_orchestra_preloaded.img.xz`](dist/haos_rpi5-64_orchestra_preloaded.img.xz) (and uncompressed at [`dist/haos_rpi5-64_orchestra_preloaded.img`](dist/haos_rpi5-64_orchestra_preloaded.img)).
+The pre-built Home Assistant OS 18.3 (`rpi5-64`) image with all Orchestra modifications pre-loaded is located in [`dist/haos_rpi5-64_orchestra_preloaded.img.xz`](dist/haos_rpi5-64_orchestra_preloaded.img.xz) (and uncompressed at [`dist/haos_rpi5-64_orchestra_preloaded.img`](dist/haos_rpi5-64_orchestra_preloaded.img)).
 
 ### Option A: Raspberry Pi Imager / BalenaEtcher (GUI)
 1. Open **Raspberry Pi Imager** (or **BalenaEtcher**).
@@ -110,7 +110,7 @@ If your Raspberry Pi 5 will connect via Wi-Fi instead of Ethernet, bake your Wi-
 ```bash
 /opt/homebrew/bin/python3 haos_image/build_rpi_image.py \
   --board rpi5-64 \
-  --base-image build/haos_rpi5-64-13.2.img.xz \
+  --base-image build/haos_rpi5-64-18.3.img.xz \
   --wifi-ssid "YourHomeWiFi" \
   --wifi-psk "YourWiFiPassword"
 ```
