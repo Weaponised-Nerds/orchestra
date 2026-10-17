@@ -101,7 +101,7 @@ The pre-built Home Assistant OS 13.2 (`rpi3-64`) image with all Orchestra modifi
 ### Option A: Raspberry Pi Imager / BalenaEtcher (GUI)
 1. Open **Raspberry Pi Imager** (or **BalenaEtcher**).
 2. Choose **Use custom** image and select:
-   `/Users/deeben/Developer/AI/Antigravity/Orchestra/dist/haos_rpi3-64_orchestra_preloaded.img.xz`
+   `/Orchestra/dist/haos_rpi3-64_orchestra_preloaded.img.xz`
 3. Select your MicroSD card (16 GB+ recommended) and click **Write**.
 
 ### Option B: Rebuild with Your Home Wi-Fi Pre-Configured
