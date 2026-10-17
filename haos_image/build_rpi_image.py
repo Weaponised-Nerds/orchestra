@@ -1,8 +1,9 @@
 """
-Home Assistant OS (HAOS) Raspberry Pi 3 (`rpi3-64`) Image Builder & Repacker.
+Home Assistant OS (HAOS) Raspberry Pi 5 (`rpi5-64`) & Pi 3/4 Image Builder & Repacker.
 
-Builds a flashable Raspberry Pi 3 image (`.img.xz`) pre-loaded with:
-1. Home Assistant OS (`rpi3-64` architecture, tuned for 1GB BCM2837 RAM with `gpu_mem=16` & 2GB swap).
+Builds a flashable Raspberry Pi 5 image (`.img.xz` & `.img`) pre-loaded with:
+1. Home Assistant OS (`rpi5-64` architecture for BCM2712 + RP1 Southbridge, with PCIe NVMe,
+   RP1 UART0, and I2C enabled).
 2. Pre-hijacked `.storage/` registries (`onboarding`, `auth`, `core.config`, `core.config_entries`,
    `core.device_registry`, `core.area_registry`, `core.entity_registry`).
 3. Pre-bound Conductor Demand Response plugin (`.storage/conductor.entity_bindings`) with
@@ -11,12 +12,6 @@ Builds a flashable Raspberry Pi 3 image (`.img.xz`) pre-loaded with:
 5. In-process `custom_components/orchestra` + all 23 zero-cloud hardware adapters (including
    the iStore 180L/270L Heat Pump Wi-Fi & Modbus prober).
 6. Local HAOS Supervisor Add-on (`/mnt/data/supervisor/addons/local/orchestra`).
-
-Supports two modes:
-- Patching an official `haos_rpi3-64-*.img.xz` release from
-  `https://github.com/home-assistant/operating-system/releases` (`--download-official` or `--base-image`).
-- Building a standalone GPT-partitioned HAOS Orchestra image (`dist/haos_rpi3-64_orchestra.img.xz`)
-  and `CONFIG` partition image (`dist/ORCHESTRA_CONFIG.img`).
 """
 
 from __future__ import annotations
@@ -44,11 +39,22 @@ from orchestra.agent.framework import GrandpaCommissioningAgent
 from orchestra.config import OrchestraConfig
 from orchestra.orchestrator import OrchestraEngine
 
-OFFICIAL_HAOS_RPI3_64_VERSION = "13.2"
-OFFICIAL_HAOS_RPI3_64_URL = (
-    f"https://github.com/home-assistant/operating-system/releases/download/"
-    f"{OFFICIAL_HAOS_RPI3_64_VERSION}/haos_rpi3-64-{OFFICIAL_HAOS_RPI3_64_VERSION}.img.xz"
-)
+OFFICIAL_HAOS_VERSION = "13.2"
+
+BOARD_RELEASE_URLS: dict[str, str] = {
+    "rpi5-64": (
+        f"https://github.com/home-assistant/operating-system/releases/download/"
+        f"{OFFICIAL_HAOS_VERSION}/haos_rpi5-64-{OFFICIAL_HAOS_VERSION}.img.xz"
+    ),
+    "rpi4-64": (
+        f"https://github.com/home-assistant/operating-system/releases/download/"
+        f"{OFFICIAL_HAOS_VERSION}/haos_rpi4-64-{OFFICIAL_HAOS_VERSION}.img.xz"
+    ),
+    "rpi3-64": (
+        f"https://github.com/home-assistant/operating-system/releases/download/"
+        f"{OFFICIAL_HAOS_VERSION}/haos_rpi3-64-{OFFICIAL_HAOS_VERSION}.img.xz"
+    ),
+}
 
 MTOOLS_DIR = Path("/opt/homebrew/bin")
 XZ_BIN = Path("/opt/homebrew/bin/xz")
@@ -128,6 +134,7 @@ def stage_orchestra_supervisor_payload(build_dir: Path, dist_dir: Path) -> dict[
 def stage_boot_and_config_overlay(
     build_dir: Path,
     preload_tar_path: Path,
+    board: str = "rpi5-64",
     wifi_ssid: str | None = None,
     wifi_psk: str | None = None,
 ) -> Path:
@@ -135,11 +142,10 @@ def stage_boot_and_config_overlay(
     Create the `boot_overlay` directory containing:
     - `orchestra-preload.tar.gz`
     - `orchestra-preload` first-boot script
-    - `config.txt` tuned for Raspberry Pi 3 (`rpi3-64`, `gpu_mem=16`, UART/I2C/RS485 enabled)
+    - `config.txt` tuned for the target Raspberry Pi board (`rpi5-64` BCM2712/RP1/PCIe or `rpi3-64`)
     - `cmdline.txt`
     - `CONFIG/network/orchestra-ethernet.nmconnection` (+ optional Wi-Fi nmconnection)
-    - `CONFIG/udev/99-orchestra-preload.rules` (triggers `orchestra-preload` via `hassos-config.service`
-      on unmodified HAOS kernels as soon as `hassos-data` mounts!)
+    - `CONFIG/udev/99-orchestra-preload.rules`
     """
     boot_dir = build_dir / "boot_overlay"
     if boot_dir.exists():
@@ -159,24 +165,31 @@ def stage_boot_and_config_overlay(
     )
     shutil.copy2(preload_script_src, boot_dir / "orchestra-preload")
 
-    # 2. Raspberry Pi 3 (`rpi3-64`) optimized `config.txt`
-    rpi3_config_txt = """# Home Assistant OS (rpi3-64) + Zenith Orchestra Hardware Tuning
-# Optimized for Raspberry Pi 3 Model B / B+ (BCM2837 64-bit, 1GB RAM)
+    # 2. Board-specific `config.txt`
+    if board == "rpi5-64":
+        board_config_txt = """# Home Assistant OS (rpi5-64) + Zenith Orchestra Hardware Tuning
+# Optimized for Raspberry Pi 5 (BCM2712 Cortex-A76 + RP1 I/O Controller)
 
 arm_64bit=1
 kernel=u-boot.bin
 
-# Minimize GPU memory reservation on RPi3 (1GB RAM) to maximize HA Core headroom
+# Enable RP1 UART0, I2C, SPI, and PCIe 2.0 x1 (for NVMe SSD / RS485 Modbus HATs)
+dtparam=uart0=on
+dtparam=i2c_arm=on
+dtparam=spi=on
+dtparam=pciex1=on
+"""
+    else:
+        board_config_txt = """# Home Assistant OS (rpi3-64) + Zenith Orchestra Hardware Tuning
+arm_64bit=1
+kernel=u-boot.bin
 gpu_mem=16
-
-# Enable hardware UART, I2C, and SPI for RS485 Modbus / DIN Rail HATs
 enable_uart=1
 dtoverlay=miniuart-bt
 dtparam=i2c_arm=on
 dtparam=spi=on
-dtparam=audio=on
 """
-    (boot_dir / "config.txt").write_text(rpi3_config_txt, encoding="utf-8")
+    (boot_dir / "config.txt").write_text(board_config_txt, encoding="utf-8")
 
     # 3. `cmdline.txt`
     cmdline = "console=tty1 console=ttyAMA0,115200 root=/dev/mmcblk0p3 ro rootwait"
@@ -192,7 +205,7 @@ dtparam=audio=on
 id=Orchestra-LAN-Ethernet
 uuid={uuid.uuid4()}
 type=ethernet
-interface-name=eth0
+interface-name=end0
 autoconnect=true
 
 [ipv4]
@@ -232,7 +245,6 @@ method=auto
         (config_net_dir / "orchestra-wifi.nmconnection").write_text(wifi_nm, encoding="utf-8")
 
     # Udev hook imported by `hassos-config.service` into `/etc/udev/rules.d/99-orchestra-preload.rules`
-    # Executes `/mnt/boot/orchestra-preload` when the `hassos-data` partition becomes active
     udev_rule = (
         'ACTION=="add|change", SUBSYSTEM=="block", ENV{ID_FS_LABEL}=="hassos-data", '
         'RUN+="/bin/sh /mnt/boot/orchestra-preload"\n'
@@ -246,7 +258,6 @@ def parse_gpt_partitions(img_path: Path) -> list[dict[str, Any]]:
     """Parse the GUID Partition Table (GPT) from a raw disk image file."""
     partitions: list[dict[str, Any]] = []
     with img_path.open("rb") as f:
-        # LBA 1 (offset 512) = GPT Header
         f.seek(512)
         header = f.read(92)
         if len(header) < 92 or header[:8] != b"EFI PART":
@@ -283,6 +294,7 @@ def inject_boot_overlay_with_mtools(
     partition_offset_bytes: int,
     boot_overlay_dir: Path,
     preserve_official_boot_configs: bool = False,
+    board: str = "rpi5-64",
 ) -> None:
     """
     Use `mtools` (`mmd`, `mcopy`, `mtype`) to inject `orchestra-preload.tar.gz`,
@@ -294,11 +306,9 @@ def inject_boot_overlay_with_mtools(
     mcopy = str(MTOOLS_DIR / "mcopy")
     mtype = str(MTOOLS_DIR / "mtype")
 
-    # Create subdirectories in the FAT32 partition
     for subdir in ("::CONFIG", "::CONFIG/network", "::CONFIG/udev"):
         subprocess.run([mmd, "-D", "s", "-i", target_spec, subdir], check=False, capture_output=True)
 
-    # Copy orchestra-preload.tar.gz and orchestra-preload script
     for fname in ("orchestra-preload.tar.gz", "orchestra-preload"):
         src = boot_overlay_dir / fname
         if src.exists():
@@ -309,16 +319,24 @@ def inject_boot_overlay_with_mtools(
             )
 
     if preserve_official_boot_configs:
-        # Read existing official HAOS config.txt, append Orchestra RPi3 tuning, and write back
         res = subprocess.run([mtype, "-i", target_spec, "::config.txt"], check=False, capture_output=True, text=True)
         if res.returncode == 0 and "Orchestra Hardware Tuning" not in res.stdout:
-            merged_cfg = (
-                res.stdout.rstrip()
-                + "\n\n# Zenith Orchestra Hardware Tuning (RPi3 1GB RAM & RS485/UART)\n"
-                + "gpu_mem=16\n"
-                + "enable_uart=1\n"
-                + "dtparam=i2c_arm=on\n"
-            )
+            if board == "rpi5-64":
+                tuning_snippet = (
+                    "\n\n# Zenith Orchestra Hardware Tuning (Raspberry Pi 5 BCM2712 / RP1 / PCIe)\n"
+                    "dtparam=uart0=on\n"
+                    "dtparam=i2c_arm=on\n"
+                    "dtparam=spi=on\n"
+                    "dtparam=pciex1=on\n"
+                )
+            else:
+                tuning_snippet = (
+                    "\n\n# Zenith Orchestra Hardware Tuning (RPi3 1GB RAM & RS485/UART)\n"
+                    "gpu_mem=16\n"
+                    "enable_uart=1\n"
+                    "dtparam=i2c_arm=on\n"
+                )
+            merged_cfg = res.stdout.rstrip() + tuning_snippet
             merged_path = boot_overlay_dir / "config.merged.txt"
             merged_path.write_text(merged_cfg, encoding="utf-8")
             subprocess.run(
@@ -336,7 +354,6 @@ def inject_boot_overlay_with_mtools(
                     capture_output=True,
                 )
 
-    # Copy CONFIG/network/* and CONFIG/udev/*
     for net_file in (boot_overlay_dir / "CONFIG" / "network").glob("*"):
         subprocess.run(
             [mcopy, "-o", "-i", target_spec, str(net_file), f"::CONFIG/network/{net_file.name}"],
@@ -357,40 +374,28 @@ def _build_gpt_disk_with_fat32_boot(
     preload_tar_path: Path,
     total_size_mb: int = 64,
 ) -> dict[str, Any]:
-    """
-    Construct a spec-compliant GPT disk image (`haos_rpi3-64_orchestra.img`) with:
-    - Protective MBR (LBA 0)
-    - Primary & Backup GPT Headers + Partition Tables (CRC32 verified):
-      - Partition 1: `hassos-boot` (32 MiB FAT32, LBA 2048..67583, formatted with `mformat` & populated via `mcopy`)
-      - Partition 2: `CONFIG` (8 MiB FAT32, LBA 67584..83967, labeled `CONFIG` for `hassos-config.service`)
-      - Partition 3: `hassos-data` (Remaining LBA 83968..end, storing the pre-baked `orchestra-preload.tar.gz` payload)
-    """
+    """Construct a spec-compliant GPT disk image with `hassos-boot`, `CONFIG`, and `hassos-data`."""
     sector_size = 512
     total_sectors = (total_size_mb * 1024 * 1024) // sector_size
 
-    # Allocate zero-filled raw image
     with output_img_path.open("wb") as f:
         f.seek(total_sectors * sector_size - 1)
         f.write(b"\x00")
 
-    # Format Partition 1 (`hassos-boot`, 32 MiB = 65536 sectors at offset 2048*512 = 1048576)
     p1_first_lba = 2048
     p1_sectors = 65536
     p1_last_lba = p1_first_lba + p1_sectors - 1
     p1_offset = p1_first_lba * sector_size
 
-    # Format Partition 2 (`CONFIG`, 8 MiB = 16384 sectors at LBA 67584)
     p2_first_lba = p1_last_lba + 1
     p2_sectors = 16384
     p2_last_lba = p2_first_lba + p2_sectors - 1
     p2_offset = p2_first_lba * sector_size
 
-    # Partition 3 (`hassos-data`, remaining sectors up to total_sectors - 34)
     p3_first_lba = p2_last_lba + 1
     p3_last_lba = total_sectors - 34
     p3_offset = p3_first_lba * sector_size
 
-    # Write Protective MBR at LBA 0 + GPT Header at LBA 1 + Partition Entries at LBA 2..33
     _write_gpt_headers(
         output_img_path,
         total_sectors,
@@ -405,7 +410,6 @@ def _build_gpt_disk_with_fat32_boot(
     mcopy = str(MTOOLS_DIR / "mcopy")
     mmd = str(MTOOLS_DIR / "mmd")
 
-    # Format Partition 1 (`hassos-boot`) as FAT32 and inject boot_overlay_dir
     subprocess.run(
         [
             mformat,
@@ -427,7 +431,6 @@ def _build_gpt_disk_with_fat32_boot(
     )
     inject_boot_overlay_with_mtools(output_img_path, p1_offset, boot_overlay_dir)
 
-    # Format Partition 2 (`CONFIG`) as FAT16/FAT32 labeled `CONFIG` for `hassos-config.service`
     subprocess.run(
         [
             mformat,
@@ -462,7 +465,6 @@ def _build_gpt_disk_with_fat32_boot(
             capture_output=True,
         )
 
-    # Write preload archive into Partition 3 (`hassos-data`)
     with output_img_path.open("r+b") as f:
         f.seek(p3_offset)
         f.write(preload_tar_path.read_bytes())
@@ -481,7 +483,6 @@ def _write_gpt_headers(
     part_specs: list[tuple[str, int, int]],
 ) -> None:
     """Write Protective MBR and CRC32-signed Primary & Backup GPT headers."""
-    # EFI System / Basic Data Partition Type GUID
     basic_data_guid = uuid.UUID("EBD0A0A2-B9E5-4433-87C0-68B6B72699C7").bytes_le
     disk_guid = uuid.uuid4().bytes_le
 
@@ -522,7 +523,6 @@ def _write_gpt_headers(
     primary_hdr = make_header(1, total_sectors - 1, 2)
     backup_hdr = make_header(total_sectors - 1, 1, total_sectors - 33)
 
-    # Protective MBR at LBA 0
     mbr = bytearray(512)
     struct.pack_into(
         "<BBBBBBBBII",
@@ -559,13 +559,14 @@ def patch_official_haos_image(
     output_img_xz: Path,
     boot_overlay_dir: Path,
     build_dir: Path,
+    board: str = "rpi5-64",
 ) -> dict[str, Any]:
     """
-    Decompress an official `haos_rpi3-64-*.img.xz`, parse its GPT table to find
-    `hassos-boot`, inject the Orchestra preload archive + `CONFIG` rules + RPi3
-    `config.txt` tuning via `mtools`, and compress to `output_img_xz`.
+    Decompress an official `haos_rpi5-64-*.img.xz` (or rpi3/rpi4), parse its GPT table
+    to find `hassos-boot`, inject the Orchestra preload archive + `CONFIG` rules +
+    board-specific `config.txt` tuning via `mtools`, and compress to `output_img_xz`.
     """
-    work_img = build_dir / "haos_rpi3-64_working.img"
+    work_img = build_dir / f"haos_{board}_working.img"
     if base_xz_or_img.suffix == ".xz":
         with work_img.open("wb") as out_f:
             subprocess.run([str(XZ_BIN), "-dc", str(base_xz_or_img)], stdout=out_f, check=True)
@@ -579,9 +580,9 @@ def patch_official_haos_image(
         boot_part["offset_bytes"],
         boot_overlay_dir,
         preserve_official_boot_configs=True,
+        board=board,
     )
 
-    # Keep the uncompressed .img in dist/ as well as compressing to .img.xz
     raw_dist_img = output_img_xz.with_suffix("")
     shutil.copy2(work_img, raw_dist_img)
 
@@ -599,18 +600,24 @@ def patch_official_haos_image(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Build flashable Raspberry Pi 3 (rpi3-64) HAOS image pre-loaded with Zenith Orchestra."
+        description="Build flashable Raspberry Pi 5 (rpi5-64) HAOS image pre-loaded with Zenith Orchestra."
+    )
+    parser.add_argument(
+        "--board",
+        choices=["rpi5-64", "rpi4-64", "rpi3-64"],
+        default="rpi5-64",
+        help="Target Raspberry Pi architecture (default: rpi5-64)",
     )
     parser.add_argument(
         "--base-image",
         type=Path,
         default=None,
-        help="Optional path to an official haos_rpi3-64-*.img.xz or .img to patch",
+        help="Optional path to an official haos_rpi*-64-*.img.xz or .img to patch",
     )
     parser.add_argument(
         "--download-official",
         action="store_true",
-        help=f"Download official {OFFICIAL_HAOS_RPI3_64_URL} and patch it",
+        help="Download the official HAOS release for --board and patch it",
     )
     parser.add_argument(
         "--stage-only",
@@ -638,25 +645,32 @@ def main(argv: list[str] | None = None) -> int:
     boot_overlay_dir = stage_boot_and_config_overlay(
         build_dir,
         preload_tar,
+        board=args.board,
         wifi_ssid=args.wifi_ssid,
         wifi_psk=args.wifi_psk,
     )
 
     base_image_path = args.base_image
+    release_url = BOARD_RELEASE_URLS[args.board]
     if args.download_official and base_image_path is None:
-        dl_target = build_dir / f"haos_rpi3-64-{OFFICIAL_HAOS_RPI3_64_VERSION}.img.xz"
+        dl_target = build_dir / f"haos_{args.board}-{OFFICIAL_HAOS_VERSION}.img.xz"
         if not dl_target.exists():
-            print(f"[HAOS Builder] Downloading {OFFICIAL_HAOS_RPI3_64_URL}...")
-            urllib.request.urlretrieve(OFFICIAL_HAOS_RPI3_64_URL, dl_target)
+            print(f"[HAOS Builder] Downloading {release_url}...")
+            urllib.request.urlretrieve(release_url, dl_target)
         base_image_path = dl_target
 
-    output_xz = dist_dir / "haos_rpi3-64_orchestra_preloaded.img.xz"
-    output_raw = dist_dir / "haos_rpi3-64_orchestra_preloaded.img"
+    output_xz = dist_dir / f"haos_{args.board}_orchestra_preloaded.img.xz"
+    output_raw = dist_dir / f"haos_{args.board}_orchestra_preloaded.img"
 
     if base_image_path is not None and base_image_path.exists():
-        img_info = patch_official_haos_image(base_image_path, output_xz, boot_overlay_dir, build_dir)
+        img_info = patch_official_haos_image(
+            base_image_path,
+            output_xz,
+            boot_overlay_dir,
+            build_dir,
+            board=args.board,
+        )
     else:
-        # Build the GPT-partitioned flashable HAOS Orchestra image directly
         img_info = _build_gpt_disk_with_fat32_boot(
             output_raw,
             boot_overlay_dir,
@@ -665,14 +679,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         subprocess.run([str(XZ_BIN), "-z", "-f", "-k", "-1", str(output_raw)], check=True)
 
-    # Compute SHA256 for Raspberry Pi Imager / BalenaEtcher verification
     sha256_hex = hashlib.sha256(output_xz.read_bytes()).hexdigest()
-    sha256_path = dist_dir / "haos_rpi3-64_orchestra_preloaded.img.xz.sha256"
+    sha256_path = dist_dir / f"haos_{args.board}_orchestra_preloaded.img.xz.sha256"
     sha256_path.write_text(f"{sha256_hex}  {output_xz.name}\n", encoding="utf-8")
 
     summary = {
-        "board_target": "rpi3-64 (Raspberry Pi 3 Model B / B+ 64-bit)",
+        "board_target": f"{args.board} (Raspberry Pi 5 64-bit)" if args.board == "rpi5-64" else args.board,
         "flashable_image_xz": str(output_xz),
+        "flashable_image_raw": str(output_raw),
         "flashable_image_size_bytes": output_xz.stat().st_size,
         "sha256": sha256_hex,
         "preload_archive": str(preload_tar),
@@ -680,7 +694,7 @@ def main(argv: list[str] | None = None) -> int:
         "image_details": img_info,
     }
     print("=" * 88)
-    print(" ZENITH ORCHESTRA: RASPBERRY PI 3 (rpi3-64) HAOS IMAGE BUILD COMPLETE")
+    print(f" ZENITH ORCHESTRA: RASPBERRY PI ({args.board}) HAOS IMAGE BUILD COMPLETE")
     print("=" * 88)
     print(json.dumps(summary, indent=2))
     return 0

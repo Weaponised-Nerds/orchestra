@@ -2,17 +2,17 @@
 # ==============================================================================
 # Applies Zenith Orchestra modifications to a cloned
 # https://github.com/home-assistant/operating-system repository and builds the
-# rpi3_64 (Raspberry Pi 3 64-bit) HAOS image via Buildroot.
+# rpi5_64 (Raspberry Pi 5 64-bit) HAOS image via Buildroot.
 # ==============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 HAOS_SRC_DIR="${1:-${REPO_ROOT}/build/operating-system}"
-BOARD_TARGET="${2:-rpi3_64}"
+BOARD_TARGET="${2:-rpi5_64}"
 
 echo "[Orchestra HAOS Builder] Preparing pre-hijacked supervisor bundle..."
-/opt/homebrew/bin/python3 "${REPO_ROOT}/haos_image/build_rpi_image.py" --stage-only
+/opt/homebrew/bin/python3 "${REPO_ROOT}/haos_image/build_rpi_image.py" --board rpi5-64 --stage-only
 
 if [ ! -d "${HAOS_SRC_DIR}" ]; then
     echo "[Orchestra HAOS Builder] Cloning https://github.com/home-assistant/operating-system..."

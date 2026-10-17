@@ -1,7 +1,7 @@
 #!/bin/sh
 # ==============================================================================
 # Zenith Orchestra HAOS First-Boot Preloader (/usr/sbin/orchestra-preload)
-# Target: Raspberry Pi 3 (rpi3-64 / 1GB RAM) & Raspberry Pi 4/5
+# Target: Raspberry Pi 5 (rpi5-64 / BCM2712) & Raspberry Pi 3/4
 # ==============================================================================
 set -e
 
@@ -14,15 +14,21 @@ MARKER_FILE="${HA_CONFIG}/.orchestra_preloaded"
 
 echo "[orchestra-preload] Starting Zenith Orchestra HAOS pre-configuration..."
 
-# 1. RPi3 1GB RAM Protection: Provision a 2GB swapfile on /mnt/data if not present
-SWAPFILE="/mnt/data/orchestra_rpi3.swap"
-if [ ! -f "${SWAPFILE}" ]; then
-    echo "[orchestra-preload] Creating 2GB swapfile on /mnt/data for Raspberry Pi 3 stability..."
-    dd if=/dev/zero of="${SWAPFILE}" bs=1M count=2048 status=none || true
-    chmod 600 "${SWAPFILE}" || true
-    mkswap "${SWAPFILE}" || true
+# 1. Low-RAM Protection: Only provision 2GB swapfile if system RAM is < 2GB (e.g. RPi3)
+#    On Raspberry Pi 5 (4GB / 8GB / 16GB LPDDR4X), skip swapfile wear on SD/NVMe.
+MEM_TOTAL_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo 4194304)
+if [ "${MEM_TOTAL_KB}" -lt 2097152 ]; then
+    SWAPFILE="/mnt/data/orchestra_lowmem.swap"
+    if [ ! -f "${SWAPFILE}" ]; then
+        echo "[orchestra-preload] Low RAM detected (${MEM_TOTAL_KB} kB). Creating 2GB swapfile..."
+        dd if=/dev/zero of="${SWAPFILE}" bs=1M count=2048 status=none || true
+        chmod 600 "${SWAPFILE}" || true
+        mkswap "${SWAPFILE}" || true
+    fi
+    swapon "${SWAPFILE}" 2>/dev/null || true
+else
+    echo "[orchestra-preload] Raspberry Pi 5 high-memory board detected (${MEM_TOTAL_KB} kB RAM)."
 fi
-swapon "${SWAPFILE}" 2>/dev/null || true
 
 # 2. Extract pre-hijacked Home Assistant .storage, custom_components/orchestra,
 #    Lovelace/Energy dashboards, and local Supervisor Add-on into /mnt/data/supervisor

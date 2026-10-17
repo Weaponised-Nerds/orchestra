@@ -94,22 +94,25 @@ The user never sets up Home Assistant—the **Orchestra Agent** ([`GrandpaCommis
 
 ---
 
-## 5. Flashing the Pre-Loaded Raspberry Pi 3 (`rpi3-64`) HAOS Image
+## 5. Flashing the Pre-Loaded Raspberry Pi 5 (`rpi5-64`) HAOS Image
 
-The pre-built Home Assistant OS 13.2 (`rpi3-64`) image with all Orchestra modifications pre-loaded is located in [`dist/haos_rpi3-64_orchestra_preloaded.img.xz`](dist/haos_rpi3-64_orchestra_preloaded.img.xz) (and uncompressed at [`dist/haos_rpi3-64_orchestra_preloaded.img`](dist/haos_rpi3-64_orchestra_preloaded.img)).
+The pre-built Home Assistant OS 13.2 (`rpi5-64`) image with all Orchestra modifications pre-loaded is located in [`dist/haos_rpi5-64_orchestra_preloaded.img.xz`](dist/haos_rpi5-64_orchestra_preloaded.img.xz) (and uncompressed at [`dist/haos_rpi5-64_orchestra_preloaded.img`](dist/haos_rpi5-64_orchestra_preloaded.img)).
 
 ### Option A: Raspberry Pi Imager / BalenaEtcher (GUI)
 1. Open **Raspberry Pi Imager** (or **BalenaEtcher**).
-2. Choose **Use custom** image and select:
-   `/Orchestra/dist/haos_rpi3-64_orchestra_preloaded.img.xz`
-3. Select your MicroSD card (16 GB+ recommended) and click **Write**.
+2. Choose **Raspberry Pi 5** as the device, then choose **Use custom** OS image and select:
+   `dist/haos_rpi5-64_orchestra_preloaded.img.xz`
+3. Select your MicroSD card or NVMe SSD (16 GB+ recommended) and click **Write**. (Do **not** apply Raspberry Pi Imager OS customisation settings when prompted—Orchestra's `CONFIG` and `.storage` payload are already embedded.)
 
 ### Option B: Rebuild with Your Home Wi-Fi Pre-Configured
-If your Raspberry Pi 3 will connect via Wi-Fi instead of Ethernet, bake your Wi-Fi credentials into the `CONFIG/network/orchestra-wifi.nmconnection` profile before flashing:
+If your Raspberry Pi 5 will connect via Wi-Fi instead of Ethernet, bake your Wi-Fi credentials into the `CONFIG/network/orchestra-wifi.nmconnection` profile before flashing:
 
 ```bash
 /opt/homebrew/bin/python3 haos_image/build_rpi_image.py \
-  --base-image build/haos_rpi3-64-13.2.img.xz \
+  --board rpi5-64 \
+  --base-image build/haos_rpi5-64-13.2.img.xz \
   --wifi-ssid "YourHomeWiFi" \
   --wifi-psk "YourWiFiPassword"
 ```
+*(also supports `--board rpi3-64` and `--board rpi4-64`)*
+
