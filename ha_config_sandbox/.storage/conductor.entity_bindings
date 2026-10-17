@@ -1,0 +1,165 @@
+{
+  "version": 1,
+  "minor_version": 1,
+  "key": "conductor.entity_bindings",
+  "data": {
+    "bound_at": "2026-10-16T05:15:47.787810+00:00",
+    "solar_generation_sensors": [
+      "sensor.tesla_powerwall_solar_power",
+      "sensor.sigenstor_pv_power",
+      "sensor.fronius_gen24_power_photovoltaics",
+      "sensor.enphase_envoy_current_power_production"
+    ],
+    "battery_soc_sensors": [
+      "sensor.tesla_powerwall_battery_soc",
+      "sensor.sigenstor_battery_soc",
+      "sensor.fronius_gen24_state_of_charge",
+      "sensor.enphase_envoy_iq_battery_soc"
+    ],
+    "grid_net_power_sensors": [
+      "sensor.tesla_powerwall_site_grid_power",
+      "sensor.sigenstor_grid_power",
+      "sensor.enphase_envoy_current_net_power_consumption"
+    ],
+    "weather_irradiance_sensors": [
+      "weather.bom_perth_peel",
+      "sensor.bom_perth_peel_solar_irradiance_ghi",
+      "sensor.bom_perth_peel_ambient_temperature",
+      "binary_sensor.bom_perth_peel_heatwave_alert"
+    ],
+    "opt_out_switch_entity_id": "switch.conductor_dr_event_opt_out",
+    "market_signal_sensor_entity_id": "sensor.conductor_dr_ngangk_wem_market_signal",
+    "controllable_loads": [
+      {
+        "control_entity_id": "climate.airtouch5_ducted_ac",
+        "sensible_name": "Main House Air Conditioner",
+        "room": "Living & Bedrooms",
+        "load_category": "hvac",
+        "verified_power_sensor_entity_id": "sensor.shelly_pro_3em_channel_b_power",
+        "verified_power_sensor_name": "Main Ducted Air Conditioner Circuit Power",
+        "dispatch_priority": 2,
+        "safety_profile": "hvac_15m_min_dwell_setpoint_offset_max_2c"
+      },
+      {
+        "control_entity_id": "climate.sensibo_split_ac",
+        "sensible_name": "Lounge Split-System Air Conditioner",
+        "room": "Living & Bedrooms",
+        "load_category": "hvac",
+        "verified_power_sensor_entity_id": null,
+        "verified_power_sensor_name": null,
+        "dispatch_priority": 2,
+        "safety_profile": "hvac_15m_min_dwell_setpoint_offset_max_2c"
+      },
+      {
+        "control_entity_id": "climate.advantage_air_myair_ac1",
+        "sensible_name": "MyAir Ducted Air Conditioner",
+        "room": "Living & Bedrooms",
+        "load_category": "hvac",
+        "verified_power_sensor_entity_id": null,
+        "verified_power_sensor_name": null,
+        "dispatch_priority": 2,
+        "safety_profile": "hvac_15m_min_dwell_setpoint_offset_max_2c"
+      },
+      {
+        "control_entity_id": "water_heater.stiebel_eltron_hpwh",
+        "sensible_name": "Stiebel Eltron Hot Water Heat Pump",
+        "room": "Living & Bedrooms",
+        "load_category": "heat_pump",
+        "verified_power_sensor_entity_id": null,
+        "verified_power_sensor_name": null,
+        "dispatch_priority": 1,
+        "safety_profile": "hpwh_thermal_65c_boost_50c_coast_no_dry_cycle"
+      },
+      {
+        "control_entity_id": "water_heater.rinnai_enviroflo",
+        "sensible_name": "Rinnai Hot Water Heat Pump",
+        "room": "Living & Bedrooms",
+        "load_category": "heat_pump",
+        "verified_power_sensor_entity_id": null,
+        "verified_power_sensor_name": null,
+        "dispatch_priority": 1,
+        "safety_profile": "hpwh_thermal_65c_boost_50c_coast_no_dry_cycle"
+      },
+      {
+        "control_entity_id": "water_heater.rheem_ambipower",
+        "sensible_name": "Rheem Hot Water Heat Pump",
+        "room": "Living & Bedrooms",
+        "load_category": "heat_pump",
+        "verified_power_sensor_entity_id": null,
+        "verified_power_sensor_name": null,
+        "dispatch_priority": 1,
+        "safety_profile": "hpwh_thermal_65c_boost_50c_coast_no_dry_cycle"
+      },
+      {
+        "control_entity_id": "water_heater.tuya_whitelabel_hpwh",
+        "sensible_name": "Smart Hot Water Heat Pump",
+        "room": "Living & Bedrooms",
+        "load_category": "heat_pump",
+        "verified_power_sensor_entity_id": null,
+        "verified_power_sensor_name": null,
+        "dispatch_priority": 1,
+        "safety_profile": "hpwh_thermal_65c_boost_50c_coast_no_dry_cycle"
+      },
+      {
+        "control_entity_id": "number.tesla_wall_connector_charging_amps_limit",
+        "sensible_name": "Tesla EV Charging Current Limit",
+        "room": "Driveway / EV Bay",
+        "load_category": "ev_charger",
+        "verified_power_sensor_entity_id": null,
+        "verified_power_sensor_name": null,
+        "dispatch_priority": 1,
+        "safety_profile": "evse_ocpp_pilot_modulation_6a_to_32a"
+      },
+      {
+        "control_entity_id": "number.sigen_ev_charger_current_limit",
+        "sensible_name": "Sigenergy EV Charger Current Limit",
+        "room": "Driveway / EV Bay",
+        "load_category": "ev_charger",
+        "verified_power_sensor_entity_id": null,
+        "verified_power_sensor_name": null,
+        "dispatch_priority": 1,
+        "safety_profile": "evse_ocpp_pilot_modulation_6a_to_32a"
+      },
+      {
+        "control_entity_id": "number.fronius_wattpilot_charging_current",
+        "sensible_name": "Fronius Wattpilot Max Current (amp)",
+        "room": "Driveway / EV Bay",
+        "load_category": "ev_charger",
+        "verified_power_sensor_entity_id": "sensor.shelly_pro_3em_channel_c_power",
+        "verified_power_sensor_name": "EV Charger (Driveway) Circuit Power",
+        "dispatch_priority": 1,
+        "safety_profile": "evse_ocpp_pilot_modulation_6a_to_32a"
+      },
+      {
+        "control_entity_id": "number.evnex_e2_maximum_current",
+        "sensible_name": "EVNex E2 Maximum Charging Current",
+        "room": "Driveway / EV Bay",
+        "load_category": "ev_charger",
+        "verified_power_sensor_entity_id": null,
+        "verified_power_sensor_name": null,
+        "dispatch_priority": 1,
+        "safety_profile": "evse_ocpp_pilot_modulation_6a_to_32a"
+      },
+      {
+        "control_entity_id": "switch.tuya_local_contactor_relay",
+        "sensible_name": "Tuya Local DIN Load Contactor (Cloud-Free)",
+        "room": "Garage / Utility",
+        "load_category": "smart_contactor",
+        "verified_power_sensor_entity_id": "sensor.shelly_em_aux_circuit_4_power",
+        "verified_power_sensor_name": "Pool Pump & Utility Contactor Circuit Power",
+        "dispatch_priority": 1,
+        "safety_profile": "din_contactor_non_essential_load_shed"
+      },
+      {
+        "control_entity_id": "water_heater.istore_heat_pump_hot_water",
+        "sensible_name": "iStore Hot Water Heat Pump",
+        "room": "Garage / Utility",
+        "load_category": "heat_pump",
+        "verified_power_sensor_entity_id": "sensor.shelly_pro_3em_channel_a_power",
+        "verified_power_sensor_name": "iStore Hot Water Heat Pump Circuit Power",
+        "dispatch_priority": 1,
+        "safety_profile": "hpwh_thermal_65c_boost_50c_coast_no_dry_cycle"
+      }
+    ]
+  }
+}

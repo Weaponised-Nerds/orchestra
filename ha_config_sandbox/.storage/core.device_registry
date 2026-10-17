@@ -1,0 +1,1166 @@
+{
+  "version": 1,
+  "minor_version": 7,
+  "key": "core.device_registry",
+  "data": {
+    "devices": [
+      {
+        "area_id": "garage_utility",
+        "config_entries": [
+          "d6967310ae1246b9ad2a18b12299e07f"
+        ],
+        "configuration_url": "http://192.168.1.100:443",
+        "connections": [
+          [
+            "mac",
+            "4c:fc:aa:10:20:0a"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "local_https_rest",
+        "id": "196ca031545c44a9a62a58a56862dab3",
+        "identifiers": [
+          [
+            "powerwall",
+            "tesla_powerwall_gateway_0001"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "solar_battery"
+        ],
+        "manufacturer": "Tesla",
+        "model": "Tesla Powerwall 2/3 & Backup Gateway",
+        "name": "Tesla Powerwall Local Gateway (192.168.1.100)",
+        "name_by_user": null,
+        "serial_number": "ZN-TESL-20260001",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "garage_utility",
+        "config_entries": [
+          "625e0c56774b4fd09a46b1b4a2a7775e"
+        ],
+        "configuration_url": "http://192.168.1.101:502",
+        "connections": [
+          [
+            "mac",
+            "a4:c1:38:10:20:0b"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "modbus_tcp",
+        "id": "4f061f1b2b524ccd8de91bf8d906d39d",
+        "identifiers": [
+          [
+            "sigenergy_modbus",
+            "sigenergy_sigenstor_bess_0002"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "solar_battery"
+        ],
+        "manufacturer": "Sigenergy",
+        "model": "Sigenergy SigenStor 5-in-1 Energy System",
+        "name": "Sigenergy SigenStor Local Modbus (192.168.1.101:502)",
+        "name_by_user": null,
+        "serial_number": "ZN-SIGE-20260002",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "roof_solar",
+        "config_entries": [
+          "c82463b25af048e9b7e84aa2027ba544"
+        ],
+        "configuration_url": "http://192.168.1.102:502",
+        "connections": [
+          [
+            "mac",
+            "00:03:ac:10:20:0c"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "sunspec_modbus",
+        "id": "eaf0879f238b4e0ea0d9e3c8a3e34edb",
+        "identifiers": [
+          [
+            "fronius",
+            "fronius_gen24_solar_storage_0003"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "solar_battery"
+        ],
+        "manufacturer": "Fronius",
+        "model": "Fronius Symo GEN24 Plus + Smart Meter",
+        "name": "Fronius SolarNet & SunSpec (192.168.1.102)",
+        "name_by_user": null,
+        "serial_number": "ZN-FRON-20260003",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "roof_solar",
+        "config_entries": [
+          "32d6c8c5983b47ab9e8ac66d30d07eec"
+        ],
+        "configuration_url": "http://192.168.1.103:443",
+        "connections": [
+          [
+            "mac",
+            "00:1d:c0:10:20:0d"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "local_https_rest",
+        "id": "c78d54aae4e64206b7cbe1c186f55e47",
+        "identifiers": [
+          [
+            "enphase_envoy",
+            "enphase_iq_gateway_envoy_0004"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "solar_battery"
+        ],
+        "manufacturer": "Enphase",
+        "model": "Enphase IQ Gateway (Envoy-S Metered) + IQ Battery",
+        "name": "Enphase IQ Gateway Local (192.168.1.103)",
+        "name_by_user": null,
+        "serial_number": "ZN-ENPH-20260004",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "living_bedrooms",
+        "config_entries": [
+          "11bb778d8f5e4449b9ef20d41f6bebb5"
+        ],
+        "configuration_url": "http://192.168.1.104:9005",
+        "connections": [
+          [
+            "mac",
+            "30:ae:a4:10:20:0e"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "airtouch5_binary_tcp",
+        "id": "71dbe84f4a3645acbe06c380d65b5d02",
+        "identifiers": [
+          [
+            "airtouch5",
+            "polyaire_airtouch5_console_0005"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "airconditioning"
+        ],
+        "manufacturer": "Polyaire Airtouch5",
+        "model": "Polyaire AirTouch 5 Ducted Zone Controller",
+        "name": "Polyaire AirTouch 5 (192.168.1.104:9005)",
+        "name_by_user": null,
+        "serial_number": "ZN-POLY-20260005",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "living_bedrooms",
+        "config_entries": [
+          "77fde221e93f42ad93f02c39722e92a5"
+        ],
+        "configuration_url": "http://192.168.1.105:80",
+        "connections": [
+          [
+            "mac",
+            "84:f3:eb:10:20:0f"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "homekit_hap_local",
+        "id": "804e4dc9e099467ab6e07b851490b5b9",
+        "identifiers": [
+          [
+            "homekit_controller",
+            "sensibo_air_local_hap_0006"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "airconditioning"
+        ],
+        "manufacturer": "Sensibo",
+        "model": "Sensibo Air PRO Split-System Controller",
+        "name": "Sensibo Air Local HAP (192.168.1.105)",
+        "name_by_user": null,
+        "serial_number": "ZN-SENS-20260006",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "living_bedrooms",
+        "config_entries": [
+          "df422f882fe646289790e839054e3875"
+        ],
+        "configuration_url": "http://192.168.1.106:2025",
+        "connections": [
+          [
+            "mac",
+            "b4:e6:2d:10:20:10"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "local_http_rest",
+        "id": "b5599d5fe7104e9a80a9d89219ff1c42",
+        "identifiers": [
+          [
+            "advantage_air",
+            "advantage_air_myair5_0007"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "airconditioning"
+        ],
+        "manufacturer": "Advantage Air",
+        "model": "Advantage Air MyAir 5 / MyPlace Controller",
+        "name": "Advantage Air MyAir (192.168.1.106:2025)",
+        "name_by_user": null,
+        "serial_number": "ZN-ADVA-20260007",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "garage_utility",
+        "config_entries": [
+          "182bb1a936484658b8b119d811a5976a"
+        ],
+        "configuration_url": "http://192.168.1.107:502",
+        "connections": [
+          [
+            "mac",
+            "00:0c:c6:10:20:11"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "modbus_tcp",
+        "id": "cfd3a3bdd97e4a06a8a474ec742b831b",
+        "identifiers": [
+          [
+            "stiebel_eltron",
+            "stiebel_eltron_isg_wwk_0008"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "heat_pump"
+        ],
+        "manufacturer": "Stiebel Eltron",
+        "model": "STIEBEL ELTRON WWK 302 Electronic (ISG Modbus/SG-Ready)",
+        "name": "STIEBEL ELTRON ISG Local Modbus (192.168.1.107:502)",
+        "name_by_user": null,
+        "serial_number": "ZN-STIE-20260008",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "garage_utility",
+        "config_entries": [
+          "821c2479748946c9a726879c7f96c4d1"
+        ],
+        "configuration_url": "http://192.168.1.108:502",
+        "connections": [
+          [
+            "mac",
+            "d8:f1:5b:10:20:12"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "modbus_tcp",
+        "id": "d4dafac3c52c406ca35a31e78d506d51",
+        "identifiers": [
+          [
+            "rinnai_local_hpwh",
+            "rinnai_enviroflo_hpwh_0009"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "heat_pump"
+        ],
+        "manufacturer": "Rinnai",
+        "model": "Rinnai Enviroflo GR Series Heat Pump",
+        "name": "Rinnai Enviroflo Local Heat Pump (192.168.1.108)",
+        "name_by_user": null,
+        "serial_number": "ZN-RINN-20260009",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "garage_utility",
+        "config_entries": [
+          "a32e826b50f3447699681b6a6bfb52ab"
+        ],
+        "configuration_url": "http://192.168.1.109:502",
+        "connections": [
+          [
+            "mac",
+            "00:23:a7:10:20:13"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "modbus_tcp",
+        "id": "74f72c800c1747b7bb543fbc98961a5f",
+        "identifiers": [
+          [
+            "rheem_local_hpwh",
+            "rheem_ambipower_econet_0010"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "heat_pump"
+        ],
+        "manufacturer": "Rheem",
+        "model": "Rheem AmbiPower 280e / MPi-325 Heat Pump",
+        "name": "Rheem AmbiPower Local (192.168.1.109)",
+        "name_by_user": null,
+        "serial_number": "ZN-RHEE-20260010",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "garage_utility",
+        "config_entries": [
+          "5216fda017a340cba04652e5826a9851"
+        ],
+        "configuration_url": "http://192.168.1.110:6668",
+        "connections": [
+          [
+            "mac",
+            "d8:1f:12:10:20:14"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "tuya_local_udp_aes",
+        "id": "692b397bca164b16b4cff956e5d2066b",
+        "identifiers": [
+          [
+            "localtuya",
+            "tuya_whitelabel_heatpump_0011"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "heat_pump"
+        ],
+        "manufacturer": "Tuya Whitelabel Hp",
+        "model": "Tuya White-Label OEM Inverter Heat Pump (iStore/Emerald/Midea)",
+        "name": "White-Label Heat Pump Local Tuya (192.168.1.110)",
+        "name_by_user": null,
+        "serial_number": "ZN-TUYA-20260011",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "driveway_ev",
+        "config_entries": [
+          "936a3772d0f041a9b7ca8476d758213d"
+        ],
+        "configuration_url": "http://192.168.1.111:80",
+        "connections": [
+          [
+            "mac",
+            "4c:fc:aa:10:20:15"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "local_http_rest",
+        "id": "f4c10da257fd4fbca3ca35ffc774cae9",
+        "identifiers": [
+          [
+            "tesla_wall_connector",
+            "tesla_wall_connector_gen3_0012"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "ev_charger"
+        ],
+        "manufacturer": "Tesla",
+        "model": "Tesla Wall Connector Gen 3",
+        "name": "Tesla Wall Connector Gen 3 (192.168.1.111)",
+        "name_by_user": null,
+        "serial_number": "ZN-TESL-20260012",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "driveway_ev",
+        "config_entries": [
+          "5cebfec0195b41a897f02e4375225cfd"
+        ],
+        "configuration_url": "http://192.168.1.112:9000",
+        "connections": [
+          [
+            "mac",
+            "a4:c1:38:10:20:16"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "ocpp_16j_ws",
+        "id": "b5e575f37efb4c609227a08078303a88",
+        "identifiers": [
+          [
+            "ocpp",
+            "sigenergy_sigen_evac_0013"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "ev_charger"
+        ],
+        "manufacturer": "Sigenergy",
+        "model": "Sigenergy Sigen EVAC 22kW / DC Charger",
+        "name": "Sigenergy EVAC Local OCPP (192.168.1.112)",
+        "name_by_user": null,
+        "serial_number": "ZN-SIGE-20260013",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "driveway_ev",
+        "config_entries": [
+          "d8cbe3817d0446b5916b625834c9bb24"
+        ],
+        "configuration_url": "http://192.168.1.113:80",
+        "connections": [
+          [
+            "mac",
+            "00:03:ac:10:20:17"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "wattpilot_local_ws",
+        "id": "1aaa66eeba7a4fedb61c0a4034d83ec8",
+        "identifiers": [
+          [
+            "wattpilot_local",
+            "fronius_wattpilot_evse_0014"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "ev_charger"
+        ],
+        "manufacturer": "Fronius",
+        "model": "Fronius Wattpilot Home 22J",
+        "name": "Fronius Wattpilot Local WebSocket (192.168.1.113)",
+        "name_by_user": null,
+        "serial_number": "ZN-FRON-20260014",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "driveway_ev",
+        "config_entries": [
+          "71eededcb9384a489458eba0af89e618"
+        ],
+        "configuration_url": "http://192.168.1.114:9000",
+        "connections": [
+          [
+            "mac",
+            "ec:62:60:10:20:18"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "ocpp_16j_ws",
+        "id": "a52b8ca383fe469aa0826d8f07b11f0a",
+        "identifiers": [
+          [
+            "ocpp",
+            "evnex_e2_smart_charger_0015"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "ev_charger"
+        ],
+        "manufacturer": "Evnex",
+        "model": "EVNex E2 Plus Smart EV Charger",
+        "name": "EVNex E2 Local OCPP 1.6J (192.168.1.114)",
+        "name_by_user": null,
+        "serial_number": "ZN-EVNE-20260015",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "garage_utility",
+        "config_entries": [
+          "44d0911e29774a9581a5c41638aaa7d8"
+        ],
+        "configuration_url": "http://192.168.1.115:6668",
+        "connections": [
+          [
+            "mac",
+            "d8:1f:12:10:20:19"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "tuya_local_udp_aes",
+        "id": "cb656a1cc5864721adf4976bac75089b",
+        "identifiers": [
+          [
+            "localtuya",
+            "tuya_local_smart_plug_relay_0016"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "other_integration"
+        ],
+        "manufacturer": "Tuya",
+        "model": "Tuya Local DIN Contactor & Energy Sub-Meter",
+        "name": "Tuya Local Contactor (192.168.1.115)",
+        "name_by_user": null,
+        "serial_number": "ZN-TUYA-20260016",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "weather_grid",
+        "config_entries": [
+          "b4cea2b78a3b4f45a4fb1a44ce9bc6ef"
+        ],
+        "configuration_url": "http://api.weather.bom.gov.au:443",
+        "connections": [
+          [
+            "mac",
+            "70:b3:d5:10:20:1a"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "bom_anon_feed",
+        "id": "5761e93179ed44318a90c1bf14847f1f",
+        "identifiers": [
+          [
+            "bureau_of_meteorology",
+            "bom_wa_weather_solar_0017"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "other_integration"
+        ],
+        "manufacturer": "Bom",
+        "model": "Bureau of Meteorology (BOM) WA Station & ACCESS-G Irradiance",
+        "name": "Bureau of Meteorology (Perth Metro / Peel Precinct)",
+        "name_by_user": null,
+        "serial_number": "ZN-BOM-20260017",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "weather_grid",
+        "config_entries": [
+          "052b103cb3424522b8cefe6392d21fd7"
+        ],
+        "configuration_url": "http://ngangk.deeben.workers.dev:443",
+        "connections": [
+          [
+            "mac",
+            "70:b3:d5:10:20:1b"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "ngangk_rest_ws",
+        "id": "9f721e9509cf43548e8ca72453a488a0",
+        "identifiers": [
+          [
+            "conductor",
+            "conductor_demand_response_vpp_0018"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "other_integration"
+        ],
+        "manufacturer": "Conductor",
+        "model": "Conductor Demand Response & Ngangk WEM Orchestrator",
+        "name": "Conductor Demand Response & Ngangk WEM Engine",
+        "name_by_user": null,
+        "serial_number": "ZN-COND-20260018",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "ecosystem_bridges",
+        "config_entries": [
+          "32e3504064f04aca91352e09214b10b7"
+        ],
+        "configuration_url": "http://192.168.1.250:39500",
+        "connections": [
+          [
+            "mac",
+            "70:b3:d5:10:20:1c"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "ssdp_edge_lan",
+        "id": "f8a0338069d348e5b60c39974826d326",
+        "identifiers": [
+          [
+            "smartthings_local_edge",
+            "samsung_smartthings_edge_bridge_0019"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "system_ecosystem"
+        ],
+        "manufacturer": "Samsung Smartthings",
+        "model": "Samsung SmartThings Local Edge LAN & Matter Bridge",
+        "name": "Samsung SmartThings Local Edge LAN Bridge",
+        "name_by_user": null,
+        "serial_number": "ZN-SAMS-20260019",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "ecosystem_bridges",
+        "config_entries": [
+          "dff5a7472b6e4d71aaad3c53898a3620"
+        ],
+        "configuration_url": "http://192.168.1.250:21063",
+        "connections": [
+          [
+            "mac",
+            "70:b3:d5:10:20:1d"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "homekit_hap_local",
+        "id": "14670074318a4be4b8532cb0757105cd",
+        "identifiers": [
+          [
+            "homekit",
+            "apple_homekit_local_bridge_0020"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "system_ecosystem"
+        ],
+        "manufacturer": "Apple Homekit",
+        "model": "Apple HomeKit Native HAP Bridge (Zero-Cloud)",
+        "name": "Zenith Local HomeKit Bridge (PIN: 512-17-150)",
+        "name_by_user": null,
+        "serial_number": "ZN-APPL-20260020",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "ecosystem_bridges",
+        "config_entries": [
+          "e343c0de1d3445e1ab869b68aa9ac38c"
+        ],
+        "configuration_url": "http://192.168.1.250:5540",
+        "connections": [
+          [
+            "mac",
+            "70:b3:d5:10:20:1e"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "matter_thread_wifi",
+        "id": "2e098f0ea37e4ddd8f44975c9d85a5ec",
+        "identifiers": [
+          [
+            "matter",
+            "google_home_matter_local_bridge_0021"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "system_ecosystem"
+        ],
+        "manufacturer": "Google Home",
+        "model": "Google Home Local Matter & Local Fulfillment Bridge",
+        "name": "Google Home Local Matter & Thread Bridge",
+        "name_by_user": null,
+        "serial_number": "ZN-GOOG-20260021",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "ecosystem_bridges",
+        "config_entries": [
+          "b05a058f78c24fd3a8ced50f9b79424f"
+        ],
+        "configuration_url": "http://192.168.1.250:80",
+        "connections": [
+          [
+            "mac",
+            "70:b3:d5:10:20:1f"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "emulated_hue_rtsp",
+        "id": "8dade1816cad426799b51ac9a6d3229a",
+        "identifiers": [
+          [
+            "emulated_hue",
+            "alexa_ring_local_bridge_0022"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "system_ecosystem"
+        ],
+        "manufacturer": "Alexa Ring",
+        "model": "Amazon Alexa Local Matter/Hue & Ring RTSP Intercom Bridge",
+        "name": "Alexa Local UPnP/Matter & Ring RTSP Bridge",
+        "name_by_user": null,
+        "serial_number": "ZN-ALEX-20260022",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "garage_utility",
+        "config_entries": [
+          "1ba195d2d3e7451e92ecb7364beb0645"
+        ],
+        "configuration_url": "http://192.168.1.111:8899",
+        "connections": [
+          [
+            "mac",
+            "ac:cf:23:10:20:15"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "modbus_tcp",
+        "id": "3714457a85324653bac5e3478cab2a64",
+        "identifiers": [
+          [
+            "istore_local_hpwh",
+            "istore_270l_wifi_heatpump_0012"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "heat_pump"
+        ],
+        "manufacturer": "Istore",
+        "model": "iStore 270L Solar Heat Pump (Onboard Wi-Fi / RS485 Bridge)",
+        "name": "iStore Heat Pump Hot Water (192.168.1.111)",
+        "name_by_user": null,
+        "serial_number": "ZN-ISTO-20260012",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "driveway_ev",
+        "config_entries": [
+          "4d28af2ebcc343329cc7dedfed978505"
+        ],
+        "configuration_url": "http://192.168.1.112:80",
+        "connections": [
+          [
+            "mac",
+            "4c:fc:aa:10:20:16"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "local_http_rest",
+        "id": "c2ef6b56326b468cb4c47ef4f990e052",
+        "identifiers": [
+          [
+            "tesla_wall_connector",
+            "tesla_wall_connector_gen3_0013"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "ev_charger"
+        ],
+        "manufacturer": "Tesla",
+        "model": "Tesla Wall Connector Gen 3",
+        "name": "Tesla Wall Connector Gen 3 (192.168.1.112)",
+        "name_by_user": null,
+        "serial_number": "ZN-TESL-20260013",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "driveway_ev",
+        "config_entries": [
+          "accb8d9215bd4fe7ab3f2209ee15785e"
+        ],
+        "configuration_url": "http://192.168.1.113:9000",
+        "connections": [
+          [
+            "mac",
+            "a4:c1:38:10:20:17"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "ocpp_16j_ws",
+        "id": "6e23cf42c9b749dab938159eb73deaed",
+        "identifiers": [
+          [
+            "ocpp",
+            "sigenergy_sigen_evac_0014"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "ev_charger"
+        ],
+        "manufacturer": "Sigenergy",
+        "model": "Sigenergy Sigen EVAC 22kW / DC Charger",
+        "name": "Sigenergy EVAC Local OCPP (192.168.1.113)",
+        "name_by_user": null,
+        "serial_number": "ZN-SIGE-20260014",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "driveway_ev",
+        "config_entries": [
+          "7632b3d1857a44ec925d23210b2d3c71"
+        ],
+        "configuration_url": "http://192.168.1.114:80",
+        "connections": [
+          [
+            "mac",
+            "00:03:ac:10:20:18"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "wattpilot_local_ws",
+        "id": "34d73b65f0a0424599ba7d86f31ec930",
+        "identifiers": [
+          [
+            "wattpilot_local",
+            "fronius_wattpilot_evse_0015"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "ev_charger"
+        ],
+        "manufacturer": "Fronius",
+        "model": "Fronius Wattpilot Home 22J",
+        "name": "Fronius Wattpilot Local WebSocket (192.168.1.114)",
+        "name_by_user": null,
+        "serial_number": "ZN-FRON-20260015",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "driveway_ev",
+        "config_entries": [
+          "51da76cb79c4413694588b1e44dfb0b6"
+        ],
+        "configuration_url": "http://192.168.1.115:9000",
+        "connections": [
+          [
+            "mac",
+            "ec:62:60:10:20:19"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "ocpp_16j_ws",
+        "id": "f9d40dd23c0e446a9e46ff9e8a17a111",
+        "identifiers": [
+          [
+            "ocpp",
+            "evnex_e2_smart_charger_0016"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "ev_charger"
+        ],
+        "manufacturer": "Evnex",
+        "model": "EVNex E2 Plus Smart EV Charger",
+        "name": "EVNex E2 Local OCPP 1.6J (192.168.1.115)",
+        "name_by_user": null,
+        "serial_number": "ZN-EVNE-20260016",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "garage_utility",
+        "config_entries": [
+          "2d33d82b6f6b4feaaa5ff6a75c6d5266"
+        ],
+        "configuration_url": "http://192.168.1.116:6668",
+        "connections": [
+          [
+            "mac",
+            "d8:1f:12:10:20:1a"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "tuya_local_udp_aes",
+        "id": "caaaa81b8f7746398625279d2f77c3a2",
+        "identifiers": [
+          [
+            "localtuya",
+            "tuya_local_smart_plug_relay_0017"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "other_integration"
+        ],
+        "manufacturer": "Tuya",
+        "model": "Tuya Local DIN Contactor & Energy Sub-Meter",
+        "name": "Tuya Local Contactor (192.168.1.116)",
+        "name_by_user": null,
+        "serial_number": "ZN-TUYA-20260017",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "weather_grid",
+        "config_entries": [
+          "b4cea2b78a3b4f45a4fb1a44ce9bc6ef"
+        ],
+        "configuration_url": "http://api.weather.bom.gov.au:443",
+        "connections": [
+          [
+            "mac",
+            "70:b3:d5:10:20:1b"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "bom_anon_feed",
+        "id": "63b9052b07ae4d7dbdede90d5252bbb2",
+        "identifiers": [
+          [
+            "bureau_of_meteorology",
+            "bom_wa_weather_solar_0018"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "other_integration"
+        ],
+        "manufacturer": "Bom",
+        "model": "Bureau of Meteorology (BOM) WA Station & ACCESS-G Irradiance",
+        "name": "Bureau of Meteorology (Perth Metro / Peel Precinct)",
+        "name_by_user": null,
+        "serial_number": "ZN-BOM-20260018",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "weather_grid",
+        "config_entries": [
+          "052b103cb3424522b8cefe6392d21fd7"
+        ],
+        "configuration_url": "http://ngangk.deeben.workers.dev:443",
+        "connections": [
+          [
+            "mac",
+            "70:b3:d5:10:20:1c"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "ngangk_rest_ws",
+        "id": "9bbc85d4a0ca4661b82e1a2f54d2a66b",
+        "identifiers": [
+          [
+            "conductor",
+            "conductor_demand_response_vpp_0019"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "other_integration"
+        ],
+        "manufacturer": "Conductor",
+        "model": "Conductor Demand Response & Ngangk WEM Orchestrator",
+        "name": "Conductor Demand Response & Ngangk WEM Engine",
+        "name_by_user": null,
+        "serial_number": "ZN-COND-20260019",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "ecosystem_bridges",
+        "config_entries": [
+          "32e3504064f04aca91352e09214b10b7"
+        ],
+        "configuration_url": "http://192.168.1.250:39500",
+        "connections": [
+          [
+            "mac",
+            "70:b3:d5:10:20:1d"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "ssdp_edge_lan",
+        "id": "04615a09cf7a4c17953ec1894b421caa",
+        "identifiers": [
+          [
+            "smartthings_local_edge",
+            "samsung_smartthings_edge_bridge_0020"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "system_ecosystem"
+        ],
+        "manufacturer": "Samsung Smartthings",
+        "model": "Samsung SmartThings Local Edge LAN & Matter Bridge",
+        "name": "Samsung SmartThings Local Edge LAN Bridge",
+        "name_by_user": null,
+        "serial_number": "ZN-SAMS-20260020",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "ecosystem_bridges",
+        "config_entries": [
+          "dff5a7472b6e4d71aaad3c53898a3620"
+        ],
+        "configuration_url": "http://192.168.1.250:21063",
+        "connections": [
+          [
+            "mac",
+            "70:b3:d5:10:20:1e"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "homekit_hap_local",
+        "id": "a1c4a13e62c2461195254d6de5105c06",
+        "identifiers": [
+          [
+            "homekit",
+            "apple_homekit_local_bridge_0021"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "system_ecosystem"
+        ],
+        "manufacturer": "Apple Homekit",
+        "model": "Apple HomeKit Native HAP Bridge (Zero-Cloud)",
+        "name": "Zenith Local HomeKit Bridge (PIN: 503-67-106)",
+        "name_by_user": null,
+        "serial_number": "ZN-APPL-20260021",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "ecosystem_bridges",
+        "config_entries": [
+          "e343c0de1d3445e1ab869b68aa9ac38c"
+        ],
+        "configuration_url": "http://192.168.1.250:5540",
+        "connections": [
+          [
+            "mac",
+            "70:b3:d5:10:20:1f"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "matter_thread_wifi",
+        "id": "6929c756c4cb49edbbe6df3da0dcf529",
+        "identifiers": [
+          [
+            "matter",
+            "google_home_matter_local_bridge_0022"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "system_ecosystem"
+        ],
+        "manufacturer": "Google Home",
+        "model": "Google Home Local Matter & Local Fulfillment Bridge",
+        "name": "Google Home Local Matter & Thread Bridge",
+        "name_by_user": null,
+        "serial_number": "ZN-GOOG-20260022",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      },
+      {
+        "area_id": "ecosystem_bridges",
+        "config_entries": [
+          "b05a058f78c24fd3a8ced50f9b79424f"
+        ],
+        "configuration_url": "http://192.168.1.250:80",
+        "connections": [
+          [
+            "mac",
+            "70:b3:d5:10:20:20"
+          ]
+        ],
+        "disabled_by": null,
+        "entry_type": null,
+        "hw_version": "emulated_hue_rtsp",
+        "id": "40093b29b54b417e9732d0605fa851e6",
+        "identifiers": [
+          [
+            "emulated_hue",
+            "alexa_ring_local_bridge_0023"
+          ]
+        ],
+        "labels": [
+          "cloud_free",
+          "system_ecosystem"
+        ],
+        "manufacturer": "Alexa Ring",
+        "model": "Amazon Alexa Local Matter/Hue & Ring RTSP Intercom Bridge",
+        "name": "Alexa Local UPnP/Matter & Ring RTSP Bridge",
+        "name_by_user": null,
+        "serial_number": "ZN-ALEX-20260023",
+        "sw_version": "2026.10-local",
+        "via_device_id": null
+      }
+    ],
+    "deleted_devices": []
+  }
+}

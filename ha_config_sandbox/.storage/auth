@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "minor_version": 1,
+  "key": "auth",
+  "data": {
+    "users": [
+      {
+        "id": "f99af465cfc345de85bf637d4ce2c581",
+        "group_ids": [
+          "system-admin"
+        ],
+        "is_owner": true,
+        "is_active": true,
+        "name": "Zenith Orchestra Daemon",
+        "system_generated": false,
+        "local_only": true
+      }
+    ],
+    "groups": [
+      {
+        "id": "system-admin",
+        "name": "Administrators"
+      },
+      {
+        "id": "system-users",
+        "name": "Users"
+      },
+      {
+        "id": "system-read-only",
+        "name": "Read Only"
+      }
+    ],
+    "credentials": [
+      {
+        "id": "0fea1f31edd54c489ae5031fa92605ff",
+        "user_id": "f99af465cfc345de85bf637d4ce2c581",
+        "auth_provider_type": "homeassistant",
+        "auth_provider_id": null,
+        "data": {
+          "username": "orchestra"
+        }
+      }
+    ],
+    "refresh_tokens": [
+      {
+        "id": "ad01b360679e433591c504c88e989ba4",
+        "user_id": "f99af465cfc345de85bf637d4ce2c581",
+        "client_id": "http://zenith-node.local/",
+        "client_name": "Orchestra Local Hijack Daemon",
+        "client_icon": null,
+        "token_type": "long_lived_access_token",
+        "created_at": "2026-10-16T00:00:00+00:00",
+        "access_token_expiration": 315360000.0,
+        "token": "aZYdmfSke7F6OkIphf7PI5N8n6GyiQsUf3smxM3zD6HVHsKidqrttg98FjofzKwQ",
+        "jwt_key": "ecddf648d0dcd564239f76fd2d2435996ad877200e8943f5fca1e5f52e82c1533d590a17df4d3df02577f49c0150e7d565e43372fff67591017d1d84df49c49f",
+        "last_used_at": null,
+        "last_used_ip": "127.0.0.1",
+        "expire_at": null,
+        "credential_id": null,
+        "version": "2026.10.0"
+      }
+    ]
+  }
+}

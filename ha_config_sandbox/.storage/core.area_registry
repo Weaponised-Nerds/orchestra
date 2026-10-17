@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "minor_version": 6,
+  "key": "core.area_registry",
+  "data": {
+    "areas": [
+      {
+        "aliases": [],
+        "floor_id": null,
+        "icon": null,
+        "id": "garage_utility",
+        "labels": [],
+        "name": "Garage / Utility",
+        "picture": null
+      },
+      {
+        "aliases": [],
+        "floor_id": null,
+        "icon": null,
+        "id": "roof_solar",
+        "labels": [],
+        "name": "Roof / Solar Array",
+        "picture": null
+      },
+      {
+        "aliases": [],
+        "floor_id": null,
+        "icon": null,
+        "id": "living_bedrooms",
+        "labels": [],
+        "name": "Living & Bedrooms",
+        "picture": null
+      },
+      {
+        "aliases": [],
+        "floor_id": null,
+        "icon": null,
+        "id": "driveway_ev",
+        "labels": [],
+        "name": "Driveway / EV Bay",
+        "picture": null
+      },
+      {
+        "aliases": [],
+        "floor_id": null,
+        "icon": null,
+        "id": "weather_grid",
+        "labels": [],
+        "name": "Grid & Weather Intelligence",
+        "picture": null
+      },
+      {
+        "aliases": [],
+        "floor_id": null,
+        "icon": null,
+        "id": "ecosystem_bridges",
+        "labels": [],
+        "name": "System Ecosystem Bridges",
+        "picture": null
+      },
+      {
+        "aliases": [],
+        "floor_id": null,
+        "icon": null,
+        "id": "kitchen_dining",
+        "labels": [],
+        "name": "Kitchen & Dining",
+        "picture": null
+      },
+      {
+        "aliases": [],
+        "floor_id": null,
+        "icon": null,
+        "id": "study_office",
+        "labels": [],
+        "name": "Study / Office",
+        "picture": null
+      },
+      {
+        "aliases": [],
+        "floor_id": null,
+        "icon": null,
+        "id": "outdoor_porch",
+        "labels": [],
+        "name": "Outdoor & Porch",
+        "picture": null
+      }
+    ]
+  }
+}

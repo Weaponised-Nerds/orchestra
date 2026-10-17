@@ -1,0 +1,16 @@
+[Unit]
+Description=Zenith Orchestra Zero-Cloud HAOS Preloader & RPi3 Swap Tuner
+DefaultDependencies=no
+After=mnt-boot.mount mnt-data.mount hassos-expand.service hassos-config.service
+Requires=mnt-boot.mount mnt-data.mount
+Before=hassos-supervisor.service docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/orchestra-preload
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

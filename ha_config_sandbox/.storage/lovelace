@@ -1,0 +1,181 @@
+{
+  "version": 1,
+  "minor_version": 1,
+  "key": "lovelace",
+  "data": {
+    "config": {
+      "title": "My Smart Home",
+      "views": [
+        {
+          "title": "My Home",
+          "path": "my-home",
+          "icon": "mdi:home-heart",
+          "cards": [
+            {
+              "type": "markdown",
+              "title": "Welcome Home \u2014 Your Energy Concierge is Active",
+              "content": "**Everything is set up and running automatically.**\n- **Hot Water & EV** soak up free midday sunshine.\n- **Air Conditioning** gently pre-cools before expensive evening peaks.\n- Need full power right now? Tap **Pause Grid Saving Event** below at any time."
+            },
+            {
+              "type": "button",
+              "name": "Pause Grid Saving Event (Give Me Full AC & Charging Now)",
+              "entity": "switch.conductor_dr_event_opt_out",
+              "icon": "mdi:hand-peace",
+              "tap_action": {
+                "action": "toggle"
+              },
+              "show_state": true
+            },
+            {
+              "type": "entities",
+              "title": "Money Saved & Grid Status Today",
+              "entities": [
+                {
+                  "entity": "sensor.conductor_dr_accumulated_dividend_aud",
+                  "name": "Cash Earned & Bill Savings ($ AUD)"
+                },
+                {
+                  "entity": "sensor.conductor_dr_ngangk_wem_market_signal",
+                  "name": "Current Smart Energy Mode"
+                },
+                {
+                  "entity": "sensor.conductor_dr_counterfactual_shed_power",
+                  "name": "Peak Power Saved for Neighbourhood"
+                }
+              ]
+            },
+            {
+              "type": "thermostat",
+              "entity": "climate.airtouch5_ducted_ac",
+              "name": "Main House Air Conditioner"
+            },
+            {
+              "type": "entities",
+              "title": "Hot Water, Solar Battery & Driveway EV",
+              "entities": [
+                {
+                  "entity": "water_heater.istore_heat_pump_hot_water",
+                  "name": "iStore Hot Water Heat Pump"
+                },
+                {
+                  "entity": "sensor.istore_heat_pump_hot_water_tank_temperature",
+                  "name": "Hot Water Tank Temperature"
+                },
+                {
+                  "entity": "sensor.tesla_powerwall_battery_soc",
+                  "name": "Home Battery Level"
+                },
+                {
+                  "entity": "switch.fronius_wattpilot_charging_allowed",
+                  "name": "Driveway EV Charger"
+                }
+              ]
+            },
+            {
+              "type": "entities",
+              "title": "Living & Bedrooms",
+              "show_header_toggle": true,
+              "entities": [
+                {
+                  "entity": "media_player.lg_webos_tv_oled65_992a",
+                  "name": "Lounge Room Smart TV"
+                },
+                {
+                  "entity": "light.philips_hue_lounge_lamp_01",
+                  "name": "Lounge Room Lamp"
+                }
+              ]
+            },
+            {
+              "type": "entities",
+              "title": "Outdoor & Porch",
+              "show_header_toggle": true,
+              "entities": [
+                {
+                  "entity": "light.lifx_front_porch_downlight",
+                  "name": "Front Porch Light"
+                }
+              ]
+            },
+            {
+              "type": "entities",
+              "title": "Garage / Utility",
+              "show_header_toggle": true,
+              "entities": [
+                {
+                  "entity": "cover.meross_msg100_garage_roller_door",
+                  "name": "Main Garage Roller Door"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Energy & Money Saved",
+          "path": "energy-and-savings",
+          "icon": "mdi:piggy-bank-outline",
+          "cards": [
+            {
+              "type": "markdown",
+              "title": "Your Home's Energy & Savings Summary",
+              "content": "| Metric | Current Value |\n| :--- | :--- |\n| **Estimated Today's Bill Savings** | **$10.82 AUD** |\n| **Projected Monthly Savings** | **$325.00 AUD / month** |\n| **Zenith Grid Support Cash Credits** | **$38.50 AUD earned** |\n| **Rooftop Solar Used at Home** | **94.2% Self-Powered** |\n| **Free Midday Solar Soaked (EV + Hot Water)** | **14.0 kWh today** |"
+            },
+            {
+              "type": "energy-distribution",
+              "title": "Live Home Power Flow (Solar, Battery, Home & Street Grid)",
+              "link_dashboard": true
+            },
+            {
+              "type": "entities",
+              "title": "Solar Roof & Home Battery Live Meters",
+              "entities": [
+                {
+                  "entity": "sensor.tesla_powerwall_solar_power",
+                  "name": "Solar Generation"
+                },
+                {
+                  "entity": "sensor.sigenstor_pv_power",
+                  "name": "Solar Generation"
+                },
+                {
+                  "entity": "sensor.tesla_powerwall_battery_soc",
+                  "name": "Battery Charge Level"
+                },
+                {
+                  "entity": "sensor.sigenstor_battery_soc",
+                  "name": "Battery Charge Level"
+                }
+              ]
+            },
+            {
+              "type": "entities",
+              "title": "Switchboard Circuits (Auto-Identified by Load Testing)",
+              "entities": [
+                {
+                  "entity": "sensor.shelly_pro_3em_channel_a_power",
+                  "name": "iStore Hot Water Heat Pump Circuit Power (Garage / Utility)"
+                },
+                {
+                  "entity": "sensor.shelly_pro_3em_channel_b_power",
+                  "name": "Main Ducted Air Conditioner Circuit Power (Living & Bedrooms)"
+                },
+                {
+                  "entity": "sensor.shelly_pro_3em_channel_c_power",
+                  "name": "EV Charger (Driveway) Circuit Power (Driveway / EV Bay)"
+                },
+                {
+                  "entity": "sensor.shelly_em_aux_circuit_4_power",
+                  "name": "Pool Pump & Utility Contactor Circuit Power (Garage / Utility)"
+                },
+                {
+                  "entity": "sensor.tuya_local_contactor_active_power",
+                  "name": "Kitchen & General Power Circuit (Living & Bedrooms)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

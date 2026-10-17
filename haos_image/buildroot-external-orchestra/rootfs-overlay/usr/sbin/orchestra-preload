@@ -1,0 +1,48 @@
+#!/bin/sh
+# ==============================================================================
+# Zenith Orchestra HAOS First-Boot Preloader (/usr/sbin/orchestra-preload)
+# Target: Raspberry Pi 3 (rpi3-64 / 1GB RAM) & Raspberry Pi 4/5
+# ==============================================================================
+set -e
+
+DATA_SUPERVISOR="/mnt/data/supervisor"
+HA_CONFIG="${DATA_SUPERVISOR}/homeassistant"
+ADDON_DIR="${DATA_SUPERVISOR}/addons/local/orchestra"
+PRELOAD_ARCHIVE="/mnt/boot/orchestra-preload.tar.gz"
+FALLBACK_ARCHIVE="/usr/share/orchestra/orchestra-preload.tar.gz"
+MARKER_FILE="${HA_CONFIG}/.orchestra_preloaded"
+
+echo "[orchestra-preload] Starting Zenith Orchestra HAOS pre-configuration..."
+
+# 1. RPi3 1GB RAM Protection: Provision a 2GB swapfile on /mnt/data if not present
+SWAPFILE="/mnt/data/orchestra_rpi3.swap"
+if [ ! -f "${SWAPFILE}" ]; then
+    echo "[orchestra-preload] Creating 2GB swapfile on /mnt/data for Raspberry Pi 3 stability..."
+    dd if=/dev/zero of="${SWAPFILE}" bs=1M count=2048 status=none || true
+    chmod 600 "${SWAPFILE}" || true
+    mkswap "${SWAPFILE}" || true
+fi
+swapon "${SWAPFILE}" 2>/dev/null || true
+
+# 2. Extract pre-hijacked Home Assistant .storage, custom_components/orchestra,
+#    Lovelace/Energy dashboards, and local Supervisor Add-on into /mnt/data/supervisor
+mkdir -p "${HA_CONFIG}" "${ADDON_DIR}"
+
+if [ ! -f "${MARKER_FILE}" ]; then
+    if [ -f "${PRELOAD_ARCHIVE}" ]; then
+        echo "[orchestra-preload] Extracting ${PRELOAD_ARCHIVE} into ${DATA_SUPERVISOR}..."
+        tar -xzf "${PRELOAD_ARCHIVE}" -C "${DATA_SUPERVISOR}"
+        date -u +"%Y-%m-%dT%H:%M:%SZ" > "${MARKER_FILE}"
+        echo "[orchestra-preload] Pre-loaded HAOS with Orchestra zero-cloud onboarding & Grandpa dashboards."
+    elif [ -f "${FALLBACK_ARCHIVE}" ]; then
+        echo "[orchestra-preload] Extracting ${FALLBACK_ARCHIVE} into ${DATA_SUPERVISOR}..."
+        tar -xzf "${FALLBACK_ARCHIVE}" -C "${DATA_SUPERVISOR}"
+        date -u +"%Y-%m-%dT%H:%M:%SZ" > "${MARKER_FILE}"
+    else
+        echo "[orchestra-preload] WARNING: No orchestra-preload.tar.gz found."
+    fi
+else
+    echo "[orchestra-preload] Marker ${MARKER_FILE} already present; preserving existing /mnt/data."
+fi
+
+exit 0

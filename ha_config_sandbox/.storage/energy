@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "minor_version": 2,
+  "key": "energy",
+  "data": {
+    "energy_sources": [
+      {
+        "type": "grid",
+        "flow_from": [
+          {
+            "stat_energy_from": "sensor.tesla_powerwall_site_grid_power",
+            "entity_energy_price": "sensor.conductor_dr_ngangk_wem_market_signal"
+          }
+        ],
+        "flow_to": [],
+        "cost_adjustment_day": 0.0
+      },
+      {
+        "type": "solar",
+        "stat_energy_from": "sensor.tesla_powerwall_solar_power"
+      },
+      {
+        "type": "solar",
+        "stat_energy_from": "sensor.sigenstor_pv_power"
+      },
+      {
+        "type": "solar",
+        "stat_energy_from": "sensor.fronius_gen24_power_photovoltaics"
+      },
+      {
+        "type": "solar",
+        "stat_energy_from": "sensor.enphase_envoy_current_power_production"
+      }
+    ],
+    "device_consumption": [
+      {
+        "stat_consumption": "sensor.shelly_pro_3em_channel_a_power",
+        "name": "iStore Hot Water Heat Pump Circuit Power"
+      },
+      {
+        "stat_consumption": "sensor.shelly_pro_3em_channel_b_power",
+        "name": "Main Ducted Air Conditioner Circuit Power"
+      },
+      {
+        "stat_consumption": "sensor.shelly_pro_3em_channel_c_power",
+        "name": "EV Charger (Driveway) Circuit Power"
+      },
+      {
+        "stat_consumption": "sensor.shelly_em_aux_circuit_4_power",
+        "name": "Pool Pump & Utility Contactor Circuit Power"
+      },
+      {
+        "stat_consumption": "sensor.tuya_local_contactor_active_power",
+        "name": "Kitchen & General Power Circuit"
+      }
+    ]
+  }
+}

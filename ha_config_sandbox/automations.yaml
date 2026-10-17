@@ -1,0 +1,107 @@
+[
+  {
+    "id": "orchestra_ngangk_solar_soak_ev_and_hpwh",
+    "alias": "Conductor Solar Soak: EV Charger & 65\u00b0C Heat Pump Thermal Boost",
+    "description": "Triggered when Ngangk WEM RTP price is negative or in midday solar soak window. Ramps OCPP EV chargers and boosts Heat Pump Hot Water to 65\u00b0C thermal storage.",
+    "trigger": [
+      {
+        "platform": "state",
+        "entity_id": "sensor.conductor_dr_ngangk_wem_market_signal",
+        "to": "SOLAR_SOAK"
+      }
+    ],
+    "action": [
+      {
+        "service": "water_heater.set_temperature",
+        "target": {
+          "entity_id": "all"
+        },
+        "data": {
+          "temperature": 65.0,
+          "operation_mode": "high_demand"
+        }
+      },
+      {
+        "service": "number.set_value",
+        "target": {
+          "entity_id": "number.fronius_wattpilot_charging_current"
+        },
+        "data": {
+          "value": 16
+        }
+      }
+    ]
+  },
+  {
+    "id": "orchestra_ngangk_precool_thermal_battery",
+    "alias": "Conductor Thermal Pre-Cool: 1:00 PM Solar Pre-Conditioning",
+    "description": "Pre-cools living areas using midday rooftop solar prior to evening microgrid peak.",
+    "trigger": [
+      {
+        "platform": "time",
+        "at": "13:00:00"
+      }
+    ],
+    "action": [
+      {
+        "service": "climate.set_temperature",
+        "target": {
+          "entity_id": "climate.airtouch5_ducted_ac"
+        },
+        "data": {
+          "temperature": 20.5,
+          "hvac_mode": "cool"
+        }
+      }
+    ]
+  },
+  {
+    "id": "orchestra_ngangk_peak_shed_guardrailed",
+    "alias": "Conductor Peak Event: Guardrailed HVAC Drift, HPWH Coast & EV Pause",
+    "description": "Nudges HVAC setpoint to 24.0\u00b0C (enforcing 900s min compressor dwell), coasts Heat Pump thermal tank, and pauses EV charging.",
+    "trigger": [
+      {
+        "platform": "state",
+        "entity_id": "sensor.conductor_dr_ngangk_wem_market_signal",
+        "to": "PEAK_DISCHARGE"
+      }
+    ],
+    "condition": [
+      {
+        "condition": "state",
+        "entity_id": "switch.conductor_dr_event_opt_out",
+        "state": "off"
+      }
+    ],
+    "action": [
+      {
+        "service": "climate.set_temperature",
+        "target": {
+          "entity_id": "climate.airtouch5_ducted_ac"
+        },
+        "data": {
+          "temperature": 24.0
+        }
+      },
+      {
+        "service": "water_heater.set_temperature",
+        "target": {
+          "entity_id": "all"
+        },
+        "data": {
+          "temperature": 50.0,
+          "operation_mode": "eco"
+        }
+      },
+      {
+        "service": "number.set_value",
+        "target": {
+          "entity_id": "number.tesla_wall_connector_charging_amps_limit"
+        },
+        "data": {
+          "value": 6
+        }
+      }
+    ]
+  }
+]
