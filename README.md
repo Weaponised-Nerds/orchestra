@@ -1,6 +1,6 @@
-# Zenith Orchestra (`Z-Node` Cloud-Liberation & HA Process Hijacker)
+# Orchestra (`Z-Node` Cloud-Liberation & HA Process Hijacker)
 
-**Zenith Orchestra** is the software core for the **Zenith Micro-Node (`Z-Node`)** hardware appliance. It hijacks the standard Home Assistant initialization, discovery, and configuration lifecycle to onboard residential energy, HVAC, heat pump, EV charging, and smart home hardware **100% locally without vendor cloud accounts**.
+**Orchestra** is the software core for the **Zenith Micro-Node (`Z-Node`)** hardware appliance. It hijacks the standard Home Assistant initialization, discovery, and configuration lifecycle to onboard residential energy, HVAC, heat pump, EV charging, and smart home hardware **100% locally without vendor cloud accounts**.
 
 ---
 
