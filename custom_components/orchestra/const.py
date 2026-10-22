@@ -16,6 +16,7 @@ CONF_HPWH_MIN_TEMP_C = "hpwh_min_temp_c"
 CONF_HPWH_MAX_TEMP_C = "hpwh_max_temp_c"
 
 DEFAULT_NGANGK_API_URL = "https://conductor.deezlepower.com/api/conductor/forecast"
+FALLBACK_NGANGK_API_URL = "https://ngangk.deeben.workers.dev/api/ngangk/forecast"
 DEFAULT_CONDUCTOR_WS_URL = "wss://conductor.deezlepower.com/v1/broadcast"
 DEFAULT_CONDUCTOR_WEBHOOK_ID = "orchestra_conductor_dispatch"
 DEFAULT_POLL_INTERVAL_SECONDS = 900  # 15 minutes

@@ -211,6 +211,7 @@ class OrchestraACDispatchModeSensor(OrchestraBaseEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         disp = self.coordinator.data.dispatch
         return {
+            "mode": disp.ac_mode,
             "setpoint_offset_c": disp.ac_setpoint_offset_c,
             "reason": disp.ac_reason,
         }

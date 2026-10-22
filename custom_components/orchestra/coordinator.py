@@ -36,6 +36,7 @@ from custom_components.orchestra.const import (
     DOMAIN,
     EVENT_ORCHESTRA_ASSET_DIRECTIVE,
     EVENT_ORCHESTRA_CONDUCTOR_DISPATCH,
+    FALLBACK_NGANGK_API_URL,
     SIGNAL_ENERGY_SOAK,
     SIGNAL_LOAD_SHED,
     SIGNAL_NORMAL_AUTO,
@@ -100,6 +101,7 @@ class OrchestraDispatchState:
     ac_preheat: bool = False
     ac_setpoint_offset_c: float = 0.0
     ac_dispatch_mode: str = "idle"  # "idle" | "precool" | "preheat" | "shed"
+    ac_mode: str = "auto"  # "cool" | "heat" | "auto" | "off"
     ac_reason: str = ""
 
     # Granular Asset Class 4: Home Battery (Storm Watch / Soak)
@@ -219,12 +221,23 @@ class OrchestraDataUpdateCoordinator:
         loop = asyncio.get_running_loop()
 
         def _sync_fetch() -> dict[str, Any]:
-            req = urllib.request.Request(
-                f"{self.ngangk_api_url}?horizon=1",
-                headers={"User-Agent": "Zenith-Orchestra-HA-Plugin/1.0", "Accept": "application/json"},
-            )
-            with urllib.request.urlopen(req, timeout=5.0) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+            urls = [f"{self.ngangk_api_url}?horizon=1"]
+            if FALLBACK_NGANGK_API_URL and self.ngangk_api_url != FALLBACK_NGANGK_API_URL:
+                urls.append(f"{FALLBACK_NGANGK_API_URL}?horizon=1")
+
+            last_err = None
+            for url in urls:
+                try:
+                    req = urllib.request.Request(
+                        url,
+                        headers={"User-Agent": "Zenith-Orchestra-HA-Plugin/1.0", "Accept": "application/json"},
+                    )
+                    with urllib.request.urlopen(req, timeout=5.0) as resp:
+                        return json.loads(resp.read().decode("utf-8"))
+                except Exception as err:
+                    last_err = err
+                    continue
+            raise last_err or RuntimeError("No forecast URL accessible")
 
         try:
             payload = await loop.run_in_executor(None, _sync_fetch)
@@ -498,6 +511,7 @@ class OrchestraDataUpdateCoordinator:
                 disp.ac_dispatch_mode = "shed"
             else:
                 disp.ac_dispatch_mode = "idle"
+            disp.ac_mode = mode if mode else ("cool" if precool else ("heat" if preheat else "auto"))
             disp.ac_reason = hvac_dir.get("reason", reason)
 
         # 4. Granular Home Battery directive (Storm Watch)

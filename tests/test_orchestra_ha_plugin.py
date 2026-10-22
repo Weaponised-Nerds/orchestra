@@ -523,3 +523,32 @@ class TestOrchestraHAPlugin(unittest.IsolatedAsyncioTestCase):
         # Attempt toggle after 601 seconds (> 10 mins) -> must succeed
         res = guard.validate_climate_service_call("climate.main_ac", "turn_off", {}, now_monotonic=t0 + 601.0)
         self.assertEqual(res, {})
+
+    async def test_entity_aliases_binding(self) -> None:
+        """Verify Item 3.5 & Spec Section 8: canonical entities and backward-compatible Conductor aliases."""
+        alias_signal = OrchestraConductorControlSignalSensor(
+            self.coordinator,
+            key="ngangk_wem_market_signal",
+            prefix="conductor_dr",
+            entity_id="sensor.conductor_dr_ngangk_wem_market_signal",
+        )
+        self.assertEqual(alias_signal.entity_id, "sensor.conductor_dr_ngangk_wem_market_signal")
+        self.assertEqual(alias_signal.unique_id, "conductor_dr_ngangk_wem_market_signal")
+        self.assertEqual(alias_signal.native_value, SIGNAL_NORMAL_AUTO)
+
+        alias_opt_out = OrchestraConductorOptOutSwitch(
+            self.coordinator,
+            key="event_opt_out",
+            prefix="conductor_dr",
+            entity_id="switch.conductor_dr_event_opt_out",
+        )
+        self.assertEqual(alias_opt_out.entity_id, "switch.conductor_dr_event_opt_out")
+        self.assertEqual(alias_opt_out.unique_id, "conductor_dr_event_opt_out")
+        self.assertFalse(alias_opt_out.is_on)
+
+        # Trigger opt out via alias switch
+        await alias_opt_out.async_turn_on()
+        self.assertTrue(alias_opt_out.is_on)
+        self.assertEqual(self.coordinator.data.dispatch.control_signal, SIGNAL_OPT_OUT)
+        self.assertEqual(alias_signal.native_value, SIGNAL_OPT_OUT)
+

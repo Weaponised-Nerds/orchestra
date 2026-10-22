@@ -118,6 +118,7 @@ class OrchestraACPrecoolBinarySensor(OrchestraBaseEntity, BinarySensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         disp = self.coordinator.data.dispatch
         return {
+            "mode": disp.ac_mode,
             "setpoint_offset_c": disp.ac_setpoint_offset_c,
             "dispatch_mode": disp.ac_dispatch_mode,
             "reason": disp.ac_reason,
@@ -143,6 +144,7 @@ class OrchestraACPreheatBinarySensor(OrchestraBaseEntity, BinarySensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         disp = self.coordinator.data.dispatch
         return {
+            "mode": disp.ac_mode,
             "setpoint_offset_c": disp.ac_setpoint_offset_c,
             "dispatch_mode": disp.ac_dispatch_mode,
             "reason": disp.ac_reason,

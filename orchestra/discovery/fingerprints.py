@@ -295,7 +295,7 @@ HARDWARE_FINGERPRINT_CATALOG: tuple[HardwareFingerprint, ...] = (
         protocol=LocalProtocol.NGANGK_REST_WS,
         default_port=443,
         suggested_area="Grid & Weather Intelligence",
-        hostname_prefixes=("ngangk.deeben.workers.dev", "conductor.zenith.energy"),
+        hostname_prefixes=("conductor.deezlepower.com", "ngangk.deeben.workers.dev", "conductor.zenith.energy"),
     ),
 
     # =========================================================================

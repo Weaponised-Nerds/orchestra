@@ -17,7 +17,7 @@ Orchestra eliminates this via two coordinated layers:
 2. **In-Process Home Assistant Custom Component ([`custom_components/orchestra/`](custom_components/orchestra/))**:
    - Hooks `config_entry_flow_initiated` on the Home Assistant event bus to automatically abort noisy cloud discovery flows (`tuya`, `sensibo`, `tesla_fleet`, `smartthings`, `rheem_econet`, `rinnai`, `stiebel_eltron_cloud`) so Orchestra's local adapters take precedence.
    - Enforces **hard-coded hardware warranty guardrails** ([`safety_guard.py`](custom_components/orchestra/safety_guard.py)):
-     - **15-Minute Minimum HVAC Compressor Dwell Timer (`900s`)**: Prevents short-cycling compressor damage during rapid grid price fluctuations.
+     - **10-Minute Minimum HVAC Compressor Dwell Timer (`600s`)**: Prevents short-cycling compressor damage during rapid grid price fluctuations (per Conductor v1.2.0 spec).
      - **Setpoint-Offset-Only HVAC Control (`<= 2.0°C`)**: Never cuts raw mains power to inverter-driven air conditioners.
      - **Heat Pump Thermal Storage Boundaries (`50°C–65°C`)**: Uses water thermal mass (`65°C` solar soak boost, `50°C` peak coast) with weekly `>= 60°C` Legionella sterilization protection and zero dry-element cycling.
 
@@ -44,7 +44,7 @@ Orchestra eliminates this via two coordinated layers:
 | **EV Chargers** | **EVNex** (E2 / E2 Plus / X7) | [`ev_chargers/evnex.py`](orchestra/adapters/ev_chargers/evnex.py) | Redirected to Z-Node's local OCPP 1.6J server (`ws://zenith-node.local:9000/ocpp/evnex`) for deterministic `SetChargingProfile` & `RemoteStopTransaction`. |
 | **Other Integrations** | **Tuya** (Smart Plugs, DIN Contactors, Sub-Meters) | [`integrations/tuya_local.py`](orchestra/adapters/integrations/tuya_local.py) | **Fake-Cloud AP/EZ-Mode Activator** responds to `s.gw.dev.pk.active` locally on `port 8886`, synthesizing a 16-byte `local_key` without a Tuya IoT account, and speaks Tuya Protocol 3.4 over TCP `6668`. |
 | **Other Integrations** | **BOM** (Bureau of Meteorology) | [`integrations/bom_weather.py`](orchestra/adapters/integrations/bom_weather.py) | Zero-auth WA station & Open-Meteo BOM ACCESS-G solar irradiance (`ghiWm2`) + heatwave pre-cool trigger. |
-| **Other Integrations** | **Conductor** (Demand Response & Ngangk VPP) | [`integrations/conductor.py`](orchestra/adapters/integrations/conductor.py) | Native Demand Response engine coupled with `https://ngangk.deeben.workers.dev/api/ngangk/optimize/residential`, 10-day rolling counterfactual baseline calculator, and 1-tap homeowner opt-out. |
+| **Other Integrations** | **Conductor** (Demand Response & WEM Engine) | [`integrations/conductor.py`](orchestra/adapters/integrations/conductor.py) | Native Demand Response engine coupled with `https://conductor.deezlepower.com/api/conductor/forecast` and `wss://conductor.deezlepower.com/v1/broadcast`, 10-day rolling counterfactual baseline calculator, and 1-tap homeowner opt-out. |
 | **System Ecosystems** | **Samsung SmartThings** | [`ecosystems/smartthings.py`](orchestra/adapters/ecosystems/smartthings.py) | Local SmartThings Edge LAN Driver over SSDP (`port 39500`) + local Matter bridge (no cloud webhook or PAT required). |
 | **System Ecosystems** | **Apple HomeKit** | [`ecosystems/apple_homekit.py`](orchestra/adapters/ecosystems/apple_homekit.py) | Native local HAP bridge (`_hap._tcp.local.` on `port 21063`) with curated entity filtering and instant `X-HM://` QR & 8-digit PIN generation. |
 | **System Ecosystems** | **Google Home** | [`ecosystems/google_home.py`](orchestra/adapters/ecosystems/google_home.py) | Local Matter Fabric Bridge (`port 5540` via onboard EFR32MG21 Thread/Wi-Fi radio) + Google Local Home SDK mDNS fulfillment. |
@@ -53,7 +53,62 @@ Orchestra eliminates this via two coordinated layers:
 
 ---
 
-## 3. The "So Easy Grandpa Can Set It Up" Agent Framework ([`orchestra/agent/`](orchestra/agent/))
+## 3. Conductor VPP Integration & Custom Component (`custom_components/orchestra`)
+
+The **Orchestra Custom Component** implements the **Conductor $\leftrightarrow$ Home Assistant Integration Specification (v1.2.0)** for Western Australia's South West Interconnected System (SWIS) WEM and Zenith Microgrids.
+
+### 3.1 Privacy-First Regional Broadcast Architecture
+Conductor acknowledges privacy concerns and does **not** collect private user data or address individual homes:
+* **Anonymous Pub-Sub:** Conductor operates as a regional market transmitter (like an energy weather broadcast). Edge gateways connect as **anonymous subscribers** to the regional WEM market broadcast (`wss://conductor.deezlepower.com/v1/broadcast`).
+* **Zero Telemetry Exfiltration:** Edge gateways never upload private household load curves, appliance states, battery SoC, or occupancy data to the cloud.
+* **Retail TOU Tariff Settlement:** Zenith operates as the energy retailer and microgrid operator. Physical revenue-grade TOU smart meters settle variable electricity tariffs and solar credits at the boundary. The in-home dividend (`sensor.orchestra_accumulated_dividend_aud`) is purely educational and calculated locally.
+* **Closed-Loop Grid Observability:** Conductor measures collective demand response **directly on the physical electrical grid** (via aggregate WEM Operational Demand MW, Western Power substation telemetry, and wholesale clearing price feedback) and dynamically adjusts its broadcast signals.
+* **Cloudflare Workers Durable Objects:** The WebSocket broadcaster runs on Cloudflare Workers Durable Objects using the **WebSocket Hibernation API**, consuming **0 GB-seconds** while edge gateways hibernate.
+
+### 3.2 Granular Asset-Class Directives & Operational Scenarios
+Conductor broadcasts high-level signals (`Normal/Auto`, `Energy Soak`, `Load Shed`) alongside granular asset recommendations:
+1. **Electric Vehicles (EV)**:
+   - Solar Soak: `CHARGE_NOW` up to 32A during negative/zero-cost solar windows.
+   - Peak Curtailment: `Load Shed - Charging Paused` with `target_amps: 0` (IEC 61851 pilot suspend).
+2. **Heat Pump Hot Water (HPWH)**:
+   - Midday Solar Boost: `RUN_NOW` / `THERMAL_BOOST_65C` to 65°C using low-cost energy.
+   - Peak Coasting: `THERMAL_COAST` (safe thermal envelope $[50^\circ\text{C}, 65^\circ\text{C}]$).
+3. **Air Conditioning (HVAC)**:
+   - Summer Pre-Cool: `PRE_COOL` with mode `cool` and setpoint offset $\Delta -1.5^\circ\text{C}$.
+   - Winter Pre-Heat: `PRE_HEAT` with mode `heat` and setpoint offset $\Delta +1.5^\circ\text{C}$.
+   - Peak Load Shed: `SHED_OFFSET` with setpoint drift $\Delta +1.5^\circ\text{C}$.
+4. **Home Battery (BESS)**:
+   - Storm Watch: `STORM_WATCH_HOLD` (100% capacity reserve hold from grid).
+   - Peak Arbitrage: `PEAK_DISCHARGE` to offset household evening peak.
+
+### 3.3 WAN Outage Failover (Section 6)
+If the edge gateway loses WAN connectivity or the WebSocket connection drops:
+* **Immediate Default to Normal/Auto:** Controllable loads revert to standard local user schedules and default setpoints ($\Delta 0.0^\circ\text{C}$).
+* Guarantees homeowner comfort and predictable appliance behavior during internet disruptions without acting on stale market data.
+
+### 3.4 Entity & Alias Catalog (Section 8)
+Orchestra registers canonical entities and backward-compatible Conductor aliases:
+
+| Entity ID (Canonical) | Alias ID (Setup Agent) | Domain | Name | Type / Units | Description |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `sensor.orchestra_wem_operational_demand` | — | `sensor` | WEM Operational Demand | `power` (MW) | Real-time SWIS operational grid demand (p50). |
+| `sensor.orchestra_wem_wholesale_price` | — | `sensor` | WEM Wholesale Price | `monetary` (AUD/MWh) | Clearing price RTP with `cents_per_kwh` attribute. |
+| `sensor.orchestra_wem_renewable_availability` | — | `sensor` | WEM Renewable Availability | `%` | Total VRE share & duck curve severity. |
+| `sensor.orchestra_conductor_control_signal` | `sensor.conductor_dr_ngangk_wem_market_signal` | `sensor` | Conductor Control Signal | String | `Normal/Auto`, `Energy Soak`, `Load Shed`, `Opt-Out`. |
+| `sensor.orchestra_ac_dispatch_mode` | — | `sensor` | A/C Dispatch Mode | String | `idle`, `precool`, `preheat`, `shed`. |
+| `sensor.orchestra_counterfactual_shed_power` | `sensor.conductor_dr_counterfactual_shed_power` | `sensor` | Verified DR Shed | `power` (kW) | Local verified load shed vs 10-day rolling baseline. |
+| `sensor.orchestra_accumulated_dividend_aud` | `sensor.conductor_dr_accumulated_dividend_aud` | `sensor` | In-Home Estimated Benefit | `monetary` (AUD) | Educational savings estimate based on TOU rate differentials. |
+| `binary_sensor.orchestra_ev_charge_now` | — | `binary_sensor` | EV Charge Now | `battery_charging` | Trigger to initiate immediate EV charging. |
+| `binary_sensor.orchestra_heat_pump_run_now` | — | `binary_sensor` | Heat Pump Run Now | `heat` | Trigger to initiate 65°C heat pump boost. |
+| `binary_sensor.orchestra_ac_precool` | — | `binary_sensor` | A/C Pre-Cool | `cold` | Pre-cool living area before peak price/heat. |
+| `binary_sensor.orchestra_ac_preheat` | — | `binary_sensor` | A/C Pre-Heat | `heat` | Pre-heat living area during excess solar. |
+| `binary_sensor.orchestra_home_battery_storm_watch` | — | `binary_sensor` | Battery Storm Watch | `battery_charging` | Grid top-up and 100% capacity reserve hold. |
+| `select.orchestra_conductor_dispatch_mode` | — | `select` | Conductor Dispatch Mode | Enum | Manual operator override for field testing. |
+| `switch.orchestra_conductor_opt_out` | `switch.conductor_dr_event_opt_out` | `switch` | Customer Opt-Out | Toggle | 1-tap customer opt-out switch. |
+
+---
+
+## 4. The "So Easy Grandpa Can Set It Up" Agent Framework ([`orchestra/agent/`](orchestra/agent/))
 
 The user never sets up Home Assistant—the **Orchestra Agent** ([`GrandpaCommissioningAgent`](orchestra/agent/framework.py)) executes a 6-stage autonomous workflow:
 
@@ -73,7 +128,7 @@ The user never sets up Home Assistant—the **Orchestra Agent** ([`GrandpaCommis
 
 ---
 
-## 4. Quick Start & Raspberry Pi CLI Commands
+## 5. Quick Start & Raspberry Pi CLI Commands
 
 ```bash
 # 1. Run the full 6-stage Grandpa-Simple Autonomous Agent setup
@@ -94,7 +149,7 @@ The user never sets up Home Assistant—the **Orchestra Agent** ([`GrandpaCommis
 
 ---
 
-## 5. Flashing the Pre-Loaded Raspberry Pi 5 (`rpi5-64`) HAOS Image
+## 6. Flashing the Pre-Loaded Raspberry Pi 5 (`rpi5-64`) HAOS Image
 
 The pre-built Home Assistant OS 15.2 (`rpi5-64`) image with all Orchestra modifications pre-loaded is located in [`dist/haos_rpi5-64_orchestra_preloaded.img.xz`](dist/haos_rpi5-64_orchestra_preloaded.img.xz) (and uncompressed at [`dist/haos_rpi5-64_orchestra_preloaded.img`](dist/haos_rpi5-64_orchestra_preloaded.img)).
 
