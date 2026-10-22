@@ -430,3 +430,96 @@ class TestOrchestraHAPlugin(unittest.IsolatedAsyncioTestCase):
         self.assertIn("binary_sensor", platforms)
         self.assertIn("select", platforms)
         self.assertIn("switch", platforms)
+
+    async def test_ev_load_shed_pause_0a(self) -> None:
+        """Verify Item 3.2: target_amps == 0 results in pilot pause and 'Load Shed - Charging Paused'."""
+        subscriber = ConductorSubscriber(
+            hass=self.hass, coordinator=self.coordinator
+        )
+        load_shed_payload = {
+            "version": "1.2",
+            "dispatch_id": "disp_shed_ev_test",
+            "control_signal": "Load Shed",
+            "granular_assets": {
+                "ev": {
+                    "enabled": False,
+                    "action": "Load Shed - Charging Paused",
+                    "target_amps": 0,
+                    "reason": "Peak load shedding active",
+                }
+            },
+        }
+        ack = subscriber.process_inbound_dispatch(load_shed_payload)
+        self.assertEqual(ack["status"], "applied")
+
+        ev_sensor = OrchestraEVChargeNowBinarySensor(self.coordinator)
+        self.assertFalse(ev_sensor.is_on)
+        self.assertEqual(ev_sensor.extra_state_attributes["target_amps"], 0)
+        self.assertEqual(ev_sensor.extra_state_attributes["action"], "Load Shed - Charging Paused")
+
+    async def test_hvac_preheat_winter_directive(self) -> None:
+        """Verify Item 3.3: Winter PRE_HEAT directive engages heat mode with positive setpoint offset."""
+        subscriber = ConductorSubscriber(
+            hass=self.hass, coordinator=self.coordinator
+        )
+        winter_payload = {
+            "version": "1.2",
+            "dispatch_id": "disp_winter_soak_test",
+            "control_signal": "Energy Soak",
+            "granular_assets": {
+                "hvac": {
+                    "enabled": True,
+                    "action": "PRE_HEAT",
+                    "mode": "heat",
+                    "setpoint_offset_c": 1.5,
+                    "reason": "Pre-heating living area with excess solar",
+                }
+            },
+        }
+        ack = subscriber.process_inbound_dispatch(winter_payload)
+        self.assertEqual(ack["status"], "applied")
+
+        preheat_sensor = OrchestraACPreheatBinarySensor(self.coordinator)
+        self.assertTrue(preheat_sensor.is_on)
+        self.assertEqual(preheat_sensor.extra_state_attributes["setpoint_offset_c"], 1.5)
+
+        ac_mode_sensor = OrchestraACDispatchModeSensor(self.coordinator)
+        self.assertEqual(ac_mode_sensor.native_value, "preheat")
+
+    async def test_wan_disconnection_defaults_to_normal_auto(self) -> None:
+        """Verify Item 3.4: WAN disconnection or subscriber link failure immediately defaults to Normal/Auto."""
+        # 1. First apply an aggressive load shed directive
+        self.coordinator.data.dispatch.control_signal = SIGNAL_LOAD_SHED
+        self.coordinator.data.dispatch.ac_dispatch_mode = "shed"
+        self.coordinator.data.dispatch.ac_setpoint_offset_c = 1.5
+        self.coordinator.data.dispatch.ev_target_amps = 0
+        self.coordinator.data.dispatch.ev_charge_now = False
+
+        # 2. Trigger WAN fallback
+        self.coordinator.apply_wan_fallback_normal("Simulated WAN outage")
+
+        # 3. Verify immediate reversion to Normal/Auto and cleared offsets
+        disp = self.coordinator.data.dispatch
+        self.assertEqual(disp.control_signal, SIGNAL_NORMAL_AUTO)
+        self.assertEqual(disp.ac_dispatch_mode, "idle")
+        self.assertEqual(disp.ac_setpoint_offset_c, 0.0)
+        self.assertEqual(disp.ev_target_amps, 16)
+        self.assertEqual(disp.ev_action, "NORMAL")
+        self.assertEqual(disp.signal_source, "wan_fallback")
+
+    def test_hvac_safety_dwell_10_minutes(self) -> None:
+        """Verify HVAC compressor dwell safety guard defaults to 600 seconds (10 mins)."""
+        guard = InProcessSafetyGuard()
+        self.assertEqual(guard.hvac_min_dwell_seconds, 600)
+
+        t0 = 1000.0
+        guard.validate_climate_service_call("climate.main_ac", "turn_on", {}, now_monotonic=t0)
+
+        # Attempt toggle after 300 seconds (5 mins) -> must raise HardwareSafetyInterlockError
+        from custom_components.orchestra.safety_guard import HardwareSafetyInterlockError
+        with self.assertRaises(HardwareSafetyInterlockError):
+            guard.validate_climate_service_call("climate.main_ac", "turn_off", {}, now_monotonic=t0 + 300.0)
+
+        # Attempt toggle after 601 seconds (> 10 mins) -> must succeed
+        res = guard.validate_climate_service_call("climate.main_ac", "turn_off", {}, now_monotonic=t0 + 601.0)
+        self.assertEqual(res, {})

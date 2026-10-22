@@ -150,35 +150,84 @@ class ConductorSubscriber:
     async def _ws_client_loop(self) -> None:
         """
         Anonymous WebSocket broadcast subscriber loop. Listens to regional WEM feed.
+        Enforces Item 3.4: on WAN disconnect or link failure, reverts to Normal/Auto.
         """
         while not self._is_stopped:
             try:
                 connected = await self._try_connect_and_listen_ws()
-                if not connected:
-                    await asyncio.sleep(60)
+                if not connected and not self._is_stopped:
+                    # Item 3.4 WAN Outage: immediately revert to Normal/Auto
+                    self.coordinator.apply_wan_fallback_normal(
+                        "Conductor broadcast connection lost. Reverted to standard schedule."
+                    )
+                    await asyncio.sleep(30)
             except asyncio.CancelledError:
                 break
             except Exception as err:
                 _LOGGER.debug("Conductor broadcast WebSocket subscription error: %s", err)
+                if not self._is_stopped:
+                    self.coordinator.apply_wan_fallback_normal(
+                        "Conductor broadcast error. Reverted to standard schedule."
+                    )
                 await asyncio.sleep(15)
 
     async def _try_connect_and_listen_ws(self) -> bool:
-        """Helper to subscribe to broadcast WebSocket if client library is installed."""
+        """Helper to subscribe to broadcast WebSocket via aiohttp or websockets."""
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        sub_frame = json.dumps({
+            "action": "subscribe",
+            "channel": "swis_market_broadcast",
+        })
+
+        # 1. Primary: Try Home Assistant native aiohttp client
+        try:
+            import aiohttp
+
+            session = None
+            if hasattr(self.hass, "helpers") and hasattr(self.hass.helpers, "aiohttp_client"):
+                session = self.hass.helpers.aiohttp_client.async_get_clientsession(self.hass)
+            elif hasattr(self.hass, "data") and "aiohttp_session" in self.hass.data:
+                session = self.hass.data["aiohttp_session"]
+
+            close_session = False
+            if session is None or session.closed:
+                session = aiohttp.ClientSession()
+                close_session = True
+
+            try:
+                async with session.ws_connect(self.ws_url, headers=headers, heartbeat=30.0) as ws:
+                    _LOGGER.info("Subscribed to anonymous Conductor market broadcast at %s", self.ws_url)
+                    await ws.send_str(sub_frame)
+
+                    async for msg in ws:
+                        if self._is_stopped:
+                            break
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            try:
+                                data = json.loads(msg.data)
+                                self.process_inbound_dispatch(data)
+                            except Exception as err:
+                                _LOGGER.warning("Error processing Conductor broadcast frame: %s", err)
+                        elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                            break
+                    return True
+            finally:
+                if close_session and not session.closed:
+                    await session.close()
+
+        except (ImportError, Exception) as exc:
+            _LOGGER.debug("aiohttp WebSocket connection to %s failed: %s; trying fallback", self.ws_url, exc)
+
+        # 2. Secondary fallback: Try `websockets` library if installed
         try:
             import websockets  # type: ignore
 
-            headers = {}
-            if self.api_key:
-                headers["Authorization"] = f"Bearer {self.api_key}"
-
             async with websockets.connect(self.ws_url, extra_headers=headers) as ws:
-                _LOGGER.info("Subscribed to anonymous Conductor market broadcast at %s", self.ws_url)
-                # Anonymous subscription request
-                sub_frame = {
-                    "action": "subscribe",
-                    "channel": "swis_market_broadcast",
-                }
-                await ws.send(json.dumps(sub_frame))
+                _LOGGER.info("Subscribed to anonymous Conductor market broadcast via websockets at %s", self.ws_url)
+                await ws.send(sub_frame)
 
                 async for msg in ws:
                     if self._is_stopped:
@@ -189,9 +238,7 @@ class ConductorSubscriber:
                     except Exception as err:
                         _LOGGER.warning("Error processing Conductor broadcast frame: %s", err)
                 return True
-        except ImportError:
-            return False
-        except Exception as exc:
+        except (ImportError, Exception) as exc:
             _LOGGER.debug("Could not reach Conductor broadcast endpoint: %s", exc)
             return False
 

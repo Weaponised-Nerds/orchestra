@@ -97,10 +97,15 @@ class OrchestraBaseEntity(CoordinatorEntity):
         self,
         coordinator: OrchestraDataUpdateCoordinator,
         key: str,
+        prefix: str = DOMAIN,
+        entity_id: str | None = None,
     ) -> None:
         super().__init__(coordinator)
         self._key = key
-        self._attr_unique_id = f"{DOMAIN}_{key}"
+        self._prefix = prefix
+        self._attr_unique_id = f"{prefix}_{key}"
+        if entity_id:
+            self.entity_id = entity_id
 
     @property
     def device_info(self) -> Any:

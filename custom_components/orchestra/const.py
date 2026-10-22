@@ -15,11 +15,11 @@ CONF_HVAC_MAX_SETPOINT_OFFSET_C = "hvac_max_setpoint_offset_c"
 CONF_HPWH_MIN_TEMP_C = "hpwh_min_temp_c"
 CONF_HPWH_MAX_TEMP_C = "hpwh_max_temp_c"
 
-DEFAULT_NGANGK_API_URL = "https://ngangk.deeben.workers.dev/api/ngangk/forecast"
-DEFAULT_CONDUCTOR_WS_URL = "wss://conductor.zenith.energy/v1/broadcast"
+DEFAULT_NGANGK_API_URL = "https://conductor.deezlepower.com/api/conductor/forecast"
+DEFAULT_CONDUCTOR_WS_URL = "wss://conductor.deezlepower.com/v1/broadcast"
 DEFAULT_CONDUCTOR_WEBHOOK_ID = "orchestra_conductor_dispatch"
 DEFAULT_POLL_INTERVAL_SECONDS = 900  # 15 minutes
-DEFAULT_HVAC_MIN_DWELL_SECONDS = 900  # 15 minutes
+DEFAULT_HVAC_MIN_DWELL_SECONDS = 600  # 10 minutes
 DEFAULT_HVAC_MAX_SETPOINT_OFFSET_C = 2.0
 DEFAULT_HPWH_MIN_TEMP_C = 50.0
 DEFAULT_HPWH_MAX_TEMP_C = 65.0
@@ -45,6 +45,8 @@ ASSET_HOME_BATTERY = "home_battery"
 
 ACTION_EV_CHARGE_NOW = "CHARGE_NOW"
 ACTION_EV_PAUSE_OR_MIN_6A = "PAUSE_OR_MIN_6A"
+ACTION_EV_LOAD_SHED_PAUSED = "Load Shed - Charging Paused"
+
 
 ACTION_HPWH_RUN_NOW = "RUN_NOW"
 ACTION_HPWH_THERMAL_BOOST = "THERMAL_BOOST_65C"

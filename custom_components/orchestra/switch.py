@@ -26,15 +26,33 @@ async def async_setup_entry(
 ) -> None:
     """Set up Orchestra switches from a config entry."""
     coordinator: OrchestraDataUpdateCoordinator = hass.data[DOMAIN]["coordinator"]
-    async_add_entities([OrchestraConductorOptOutSwitch(coordinator)])
+    async_add_entities(
+        [
+            # 1. Canonical Switch
+            OrchestraConductorOptOutSwitch(coordinator),
+            # 2. Backward-Compatible Conductor Alias
+            OrchestraConductorOptOutSwitch(
+                coordinator,
+                key="event_opt_out",
+                prefix="conductor_dr",
+                entity_id="switch.conductor_dr_event_opt_out",
+            ),
+        ]
+    )
 
 
 class OrchestraConductorOptOutSwitch(OrchestraBaseEntity, SwitchEntity):
     """1-Tap Homeowner Opt-Out switch. Disables all demand response overrides with 0 penalty."""
 
-    def __init__(self, coordinator: OrchestraDataUpdateCoordinator) -> None:
-        super().__init__(coordinator, SWITCH_CONDUCTOR_OPT_OUT)
-        self._attr_name = "Conductor Customer Opt-Out"
+    def __init__(
+        self,
+        coordinator: OrchestraDataUpdateCoordinator,
+        key: str = SWITCH_CONDUCTOR_OPT_OUT,
+        prefix: str = DOMAIN,
+        entity_id: str | None = None,
+    ) -> None:
+        super().__init__(coordinator, key, prefix, entity_id)
+        self._attr_name = "Conductor Customer Opt-Out" if prefix == DOMAIN else "Conductor 1-Tap Peak Event Opt-Out"
         self._attr_icon = "mdi:account-check"
 
     @property

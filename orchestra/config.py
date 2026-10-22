@@ -13,8 +13,8 @@ class SafetyGuardrailsConfig:
     Cannot be overridden by cloud dispatch or AI agent commands.
     """
 
-    # Minimum time an HVAC compressor must remain in its current state before toggling (15 mins)
-    hvac_min_dwell_seconds: int = 900
+    # Minimum time an HVAC compressor must remain in its current state before toggling (10 mins)
+    hvac_min_dwell_seconds: int = 600
     # Maximum setpoint nudge during a demand response event (+1.5°C to +2.0°C)
     hvac_max_setpoint_offset_c: float = 2.0
     # Never cut raw mains power to inverter-driven HVAC compressors
@@ -57,8 +57,8 @@ class OrchestraConfig:
     homekit_bridge_port: int = 21063
 
     # Ngangk WEM Predictive Energy Engine & Conductor Demand Response settings
-    ngangk_api_base_url: str = "https://ngangk.deeben.workers.dev"
-    conductor_vpp_ws_url: str = "wss://conductor.zenith.energy/v1/dispatch"
+    ngangk_api_base_url: str = "https://conductor.deezlepower.com"
+    conductor_vpp_ws_url: str = "wss://conductor.deezlepower.com/v1/broadcast"
     forecast_poll_interval_seconds: int = 900  # 15 minutes
     baseline_rolling_days: int = 10
 

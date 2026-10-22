@@ -2,7 +2,7 @@
 In-Process Hardware Safety Guardrail Interceptor for Home Assistant.
 
 Enforces Pitfall 3 mitigations from `ZENITH_MICRO_NODE_ARCHITECTURE.md`:
-1. Minimum HVAC compressor dwell time (default 900s / 15 minutes) between state transitions.
+1. Minimum HVAC compressor dwell time (default 600s / 10 minutes) between state transitions.
 2. Setpoint-offset-only HVAC modulation (clamping single-step demand response shifts to <= 2.0°C).
 3. Heat Pump Hot Water thermal storage bounds (50.0°C coast minimum to 65.0°C solar boost max).
 """
@@ -22,7 +22,7 @@ class InProcessSafetyGuard:
 
     def __init__(
         self,
-        hvac_min_dwell_seconds: int = 900,
+        hvac_min_dwell_seconds: int = 600,
         hvac_max_setpoint_offset_c: float = 2.0,
         hpwh_min_temp_c: float = 50.0,
         hpwh_max_temp_c: float = 65.0,

@@ -33,6 +33,7 @@ async def async_setup_entry(
     coordinator: OrchestraDataUpdateCoordinator = hass.data[DOMAIN]["coordinator"]
     async_add_entities(
         [
+            # 1. Canonical Orchestra Sensors (sensor.orchestra_*)
             OrchestraWEMOperationalDemandSensor(coordinator),
             OrchestraWEMWholesalePriceSensor(coordinator),
             OrchestraWEMRenewableAvailabilitySensor(coordinator),
@@ -40,6 +41,27 @@ async def async_setup_entry(
             OrchestraACDispatchModeSensor(coordinator),
             OrchestraCounterfactualShedSensor(coordinator),
             OrchestraAccumulatedDividendSensor(coordinator),
+
+            # 2. Backward-Compatible Conductor Aliases (sensor.conductor_dr_*)
+            # Guarantees existing dashboards, Lovelace cards, and automations bind cleanly
+            OrchestraConductorControlSignalSensor(
+                coordinator,
+                key="ngangk_wem_market_signal",
+                prefix="conductor_dr",
+                entity_id="sensor.conductor_dr_ngangk_wem_market_signal",
+            ),
+            OrchestraCounterfactualShedSensor(
+                coordinator,
+                key="counterfactual_shed_power",
+                prefix="conductor_dr",
+                entity_id="sensor.conductor_dr_counterfactual_shed_power",
+            ),
+            OrchestraAccumulatedDividendSensor(
+                coordinator,
+                key="accumulated_dividend_aud",
+                prefix="conductor_dr",
+                entity_id="sensor.conductor_dr_accumulated_dividend_aud",
+            ),
         ]
     )
 
@@ -132,9 +154,15 @@ class OrchestraConductorControlSignalSensor(OrchestraBaseEntity, SensorEntity):
     (Normal/Auto, Energy Soak, Load Shed, Opt-Out).
     """
 
-    def __init__(self, coordinator: OrchestraDataUpdateCoordinator) -> None:
-        super().__init__(coordinator, SENSOR_CONDUCTOR_CONTROL_SIGNAL)
-        self._attr_name = "Conductor Control Signal"
+    def __init__(
+        self,
+        coordinator: OrchestraDataUpdateCoordinator,
+        key: str = SENSOR_CONDUCTOR_CONTROL_SIGNAL,
+        prefix: str = DOMAIN,
+        entity_id: str | None = None,
+    ) -> None:
+        super().__init__(coordinator, key, prefix, entity_id)
+        self._attr_name = "Conductor Control Signal" if prefix == DOMAIN else "Conductor Ngangk WEM Market Signal"
         self._attr_icon = "mdi:broadcast"
 
     @property
@@ -191,9 +219,15 @@ class OrchestraACDispatchModeSensor(OrchestraBaseEntity, SensorEntity):
 class OrchestraCounterfactualShedSensor(OrchestraBaseEntity, SensorEntity):
     """Exposes verified Demand Response shed kW against 10-day rolling baseline."""
 
-    def __init__(self, coordinator: OrchestraDataUpdateCoordinator) -> None:
-        super().__init__(coordinator, "counterfactual_shed_power")
-        self._attr_name = "Verified Demand Response Shed"
+    def __init__(
+        self,
+        coordinator: OrchestraDataUpdateCoordinator,
+        key: str = "counterfactual_shed_power",
+        prefix: str = DOMAIN,
+        entity_id: str | None = None,
+    ) -> None:
+        super().__init__(coordinator, key, prefix, entity_id)
+        self._attr_name = "Verified Demand Response Shed" if prefix == DOMAIN else "Conductor Verified Demand Response Shed"
         self._attr_native_unit_of_measurement = "kW"
         self._attr_device_class = "power"
         self._attr_icon = "mdi:chart-timeline-variant-shimmer"
@@ -206,9 +240,15 @@ class OrchestraCounterfactualShedSensor(OrchestraBaseEntity, SensorEntity):
 class OrchestraAccumulatedDividendSensor(OrchestraBaseEntity, SensorEntity):
     """Exposes cumulative load-shed dividend earned by the homeowner (AUD)."""
 
-    def __init__(self, coordinator: OrchestraDataUpdateCoordinator) -> None:
-        super().__init__(coordinator, "accumulated_dividend_aud")
-        self._attr_name = "Homeowner Load-Shed Dividend"
+    def __init__(
+        self,
+        coordinator: OrchestraDataUpdateCoordinator,
+        key: str = "accumulated_dividend_aud",
+        prefix: str = DOMAIN,
+        entity_id: str | None = None,
+    ) -> None:
+        super().__init__(coordinator, key, prefix, entity_id)
+        self._attr_name = "Homeowner Load-Shed Dividend" if prefix == DOMAIN else "Conductor Homeowner Load-Shed Dividend"
         self._attr_native_unit_of_measurement = "AUD"
         self._attr_device_class = "monetary"
         self._attr_icon = "mdi:cash-multiple"

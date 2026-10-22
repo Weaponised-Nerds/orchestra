@@ -21,6 +21,7 @@ import urllib.request
 from custom_components.orchestra.const import (
     ACTION_BATTERY_STORM_WATCH_HOLD,
     ACTION_EV_CHARGE_NOW,
+    ACTION_EV_LOAD_SHED_PAUSED,
     ACTION_HPWH_RUN_NOW,
     ACTION_HVAC_PRE_COOL,
     ACTION_HVAC_PRE_HEAT,
@@ -420,18 +421,30 @@ class OrchestraDataUpdateCoordinator:
         # 1. Granular EV directive
         ev_dir = granular.get(ASSET_EV, {})
         if ev_dir:
+            ev_action = ev_dir.get("action", "")
             ev_enabled = bool(ev_dir.get("enabled", False) or ev_dir.get("charge_now", False))
             target_amps = int(ev_dir.get("target_amps", 16))
-            if target_amps < 6:
-                target_amps = 6
-                safety_adjustments.append("ev_pilot_clamped_to_6a_minimum")
-            elif target_amps > 32:
-                target_amps = 32
-                safety_adjustments.append("ev_pilot_clamped_to_32a_maximum")
+
+            # Item 3.2: target_amps == 0 or load shed pause indicates pilot pause (IEC 61851 0A)
+            if target_amps == 0 or not ev_enabled or "PAUSE" in ev_action.upper() or "LOAD SHED" in ev_action.upper():
+                target_amps = 0
+                ev_enabled = False
+                ev_action_resolved = (
+                    ACTION_EV_LOAD_SHED_PAUSED if ("LOAD SHED" in ev_action.upper() or control_signal == SIGNAL_LOAD_SHED)
+                    else "PAUSE"
+                )
+            else:
+                if target_amps < 6:
+                    target_amps = 6
+                    safety_adjustments.append("ev_pilot_clamped_to_6a_minimum")
+                elif target_amps > 32:
+                    target_amps = 32
+                    safety_adjustments.append("ev_pilot_clamped_to_32a_maximum")
+                ev_action_resolved = ev_action if ev_action else ACTION_EV_CHARGE_NOW
 
             disp.ev_charge_now = ev_enabled
             disp.ev_target_amps = target_amps
-            disp.ev_action = ev_dir.get("action", ACTION_EV_CHARGE_NOW if ev_enabled else "PAUSE")
+            disp.ev_action = ev_action_resolved
             disp.ev_reason = ev_dir.get("reason", reason)
 
         # 2. Granular Heat Pump Water Heater directive
@@ -458,9 +471,12 @@ class OrchestraDataUpdateCoordinator:
         hvac_dir = granular.get(ASSET_HVAC, {})
         if hvac_dir:
             hvac_action = str(hvac_dir.get("action", "")).upper()
-            precool = bool(hvac_dir.get("precool", False) or "PRE_COOL" in hvac_action)
-            preheat = bool(hvac_dir.get("preheat", False) or "PRE_HEAT" in hvac_action)
-            offset = float(hvac_dir.get("setpoint_offset_c", -1.5 if precool else (1.5 if preheat else 0.0)))
+            mode = str(hvac_dir.get("mode", "")).lower()
+            precool = bool(hvac_dir.get("precool", False) or "PRE_COOL" in hvac_action or mode == "cool")
+            preheat = bool(hvac_dir.get("preheat", False) or "PRE_HEAT" in hvac_action or mode == "heat")
+            is_shed = "SHED" in hvac_action or control_signal == SIGNAL_LOAD_SHED
+
+            offset = float(hvac_dir.get("setpoint_offset_c", -1.5 if precool else (1.5 if (preheat or is_shed) else 0.0)))
 
             # Clamp offset to safety limit
             max_offset = self.safety_guard.hvac_max_setpoint_offset_c
@@ -474,7 +490,14 @@ class OrchestraDataUpdateCoordinator:
             disp.ac_precool = precool
             disp.ac_preheat = preheat
             disp.ac_setpoint_offset_c = offset
-            disp.ac_dispatch_mode = "precool" if precool else ("preheat" if preheat else "idle")
+            if precool:
+                disp.ac_dispatch_mode = "precool"
+            elif preheat:
+                disp.ac_dispatch_mode = "preheat"
+            elif is_shed:
+                disp.ac_dispatch_mode = "shed"
+            else:
+                disp.ac_dispatch_mode = "idle"
             disp.ac_reason = hvac_dir.get("reason", reason)
 
         # 4. Granular Home Battery directive (Storm Watch)
@@ -515,6 +538,48 @@ class OrchestraDataUpdateCoordinator:
             "safety_adjustments": safety_adjustments,
             "applied_at": datetime.now(timezone.utc).isoformat(),
         }
+
+    def apply_wan_fallback_normal(self, reason: str = "WAN connection offline. Reverted to standard schedule.") -> None:
+        """
+        Item 3.4 of Conductor spec v1.2.0:
+        During a WAN outage or WebSocket disconnect, edge node defaults to Normal/Auto
+        and returns all controllable appliances to standard local user schedules.
+        """
+        disp = self.data.dispatch
+        if disp.opted_out:
+            return
+
+        disp.signal_source = "wan_fallback"
+        disp.control_signal = SIGNAL_NORMAL_AUTO
+        disp.dispatch_id = "wan_offline_normal"
+        disp.reason = reason
+        disp.valid_until = ""
+
+        # EV: return to normal schedule
+        disp.ev_charge_now = False
+        disp.ev_target_amps = 16
+        disp.ev_action = "NORMAL"
+        disp.ev_reason = "WAN offline; standard charging schedule"
+
+        # HPWH: standard schedule
+        disp.heat_pump_run_now = False
+        disp.heat_pump_target_temp_c = 60.0
+        disp.heat_pump_action = "NORMAL"
+        disp.heat_pump_reason = "WAN offline; standard heating schedule"
+
+        # HVAC: clear setpoint offsets (Δ 0.0°C) and idle mode
+        disp.ac_precool = False
+        disp.ac_preheat = False
+        disp.ac_setpoint_offset_c = 0.0
+        disp.ac_dispatch_mode = "idle"
+        disp.ac_reason = "WAN offline; standard comfort setpoint"
+
+        # Battery: self-consume
+        disp.home_battery_storm_watch = False
+        disp.battery_action = "SELF_CONSUME"
+        disp.battery_reason = "WAN offline; standard self-consumption"
+
+        self.async_update_listeners()
 
     def set_opt_out(self, opt_out: bool) -> None:
         """1-tap customer opt-out toggle. Zeroes active DR actions immediately."""
