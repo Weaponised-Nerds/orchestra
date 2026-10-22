@@ -22,6 +22,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from custom_components.orchestra import async_setup, async_setup_entry
+from custom_components.orchestra.config_flow import ConfigFlow, OrchestraConfigFlow
 from custom_components.orchestra.binary_sensor import (
     OrchestraACPrecoolBinarySensor,
     OrchestraACPreheatBinarySensor,
@@ -551,4 +552,29 @@ class TestOrchestraHAPlugin(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(alias_opt_out.is_on)
         self.assertEqual(self.coordinator.data.dispatch.control_signal, SIGNAL_OPT_OUT)
         self.assertEqual(alias_signal.native_value, SIGNAL_OPT_OUT)
+
+    async def test_config_flow_lifecycle(self) -> None:
+        """Verify OrchestraConfigFlow registers handler and creates config entries."""
+        flow = OrchestraConfigFlow()
+        self.assertEqual(OrchestraConfigFlow.domain, DOMAIN)
+        self.assertEqual(ConfigFlow, OrchestraConfigFlow)
+
+        # Step user initial show form
+        form_res = await flow.async_step_user(user_input=None)
+        self.assertEqual(form_res["type"], "form")
+        self.assertEqual(form_res["step_id"], "user")
+
+        # Step user submit data
+        entry_res = await flow.async_step_user(
+            user_input={"node_id": "test-node", "ngangk_api_url": "https://test.local"}
+        )
+        self.assertEqual(entry_res["type"], "create_entry")
+        self.assertEqual(entry_res["title"], "Orchestra")
+        self.assertEqual(entry_res["data"]["node_id"], "test-node")
+
+        # Step import from yaml or onboarding
+        import_res = await flow.async_step_import({"node_id": "import-node"})
+        self.assertEqual(import_res["type"], "create_entry")
+        self.assertEqual(import_res["data"]["node_id"], "import-node")
+
 

@@ -1,0 +1,18 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Orchestra",
+        "description": "Configure the Orchestra edge node and Conductor market broadcast receiver.",
+        "data": {
+          "node_id": "Edge Node ID",
+          "ngangk_api_url": "Ngangk Forecast API URL",
+          "conductor_ws_url": "Conductor Broadcast WebSocket URL"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Orchestra is already configured on this Home Assistant instance."
+    }
+  }
+}
