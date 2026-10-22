@@ -177,6 +177,10 @@ class OrchestraDataUpdateCoordinator:
         )
 
         self.data = OrchestraCoordinatorData()
+        self.last_update_success: bool = True
+        self.last_exception: Exception | None = None
+        self.name: str = "orchestra"
+        self.always_update: bool = True
         self._listeners: list[Callable[[], None]] = []
         self._poll_task: asyncio.Task | None = None
         self._is_stopped = False
@@ -243,8 +247,13 @@ class OrchestraDataUpdateCoordinator:
             market_data = await self._fetch_ngangk_forecast()
             if market_data:
                 self.data.market = market_data
+            self.last_update_success = True
+            self.last_exception = None
         except Exception as err:
             _LOGGER.warning("Ngangk forecast fetch failed: %s", err)
+            self.last_exception = err
+            # Keep last_update_success True to ensure gateway entities stay visible
+            self.last_update_success = True
 
         # Update autonomous dispatch if not currently locked under active conductor push
         self._evaluate_autonomous_dispatch()

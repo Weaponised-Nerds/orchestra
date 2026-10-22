@@ -122,11 +122,16 @@ class OrchestraBaseEntity(CoordinatorEntity):
         return getattr(self, "_attr_name", None)
 
     @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return getattr(self.coordinator, "last_update_success", True)
+
+    @property
     def device_info(self) -> Any:
         return {
             "identifiers": {(DOMAIN, "orchestra_gateway")},
             "name": "Orchestra Gateway",
             "manufacturer": "Weaponised Nerds",
             "model": "WEM Predictive Micro-Node",
-            "sw_version": "0.2.3",
+            "sw_version": "0.2.4",
         }

@@ -589,5 +589,14 @@ class TestOrchestraHAPlugin(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(called)
         remove_fn()
 
+    def test_coordinator_last_update_success_and_entity_available(self) -> None:
+        """Verify coordinator has last_update_success and entity available returns True."""
+        self.assertTrue(hasattr(self.coordinator, "last_update_success"))
+        self.assertTrue(self.coordinator.last_update_success)
+
+        sensor = OrchestraWEMOperationalDemandSensor(self.coordinator)
+        self.assertTrue(sensor.available)
+
+
 
 
