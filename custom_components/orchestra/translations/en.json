@@ -14,5 +14,57 @@
     "abort": {
       "already_configured": "Orchestra is already configured on this Home Assistant instance."
     }
+  },
+  "entity": {
+    "sensor": {
+      "wem_operational_demand": {
+        "name": "WEM Operational Demand"
+      },
+      "wem_wholesale_price": {
+        "name": "WEM Wholesale Price"
+      },
+      "wem_renewable_availability": {
+        "name": "WEM Renewable Availability"
+      },
+      "conductor_control_signal": {
+        "name": "Conductor Control Signal"
+      },
+      "ac_dispatch_mode": {
+        "name": "A/C Dispatch Mode"
+      },
+      "counterfactual_shed_power": {
+        "name": "Verified Demand Response Shed"
+      },
+      "accumulated_dividend_aud": {
+        "name": "Homeowner Load-Shed Dividend"
+      }
+    },
+    "binary_sensor": {
+      "ev_charge_now": {
+        "name": "EV Charge Now"
+      },
+      "heat_pump_run_now": {
+        "name": "Heat Pump Run Now"
+      },
+      "ac_precool": {
+        "name": "A/C Pre-Cool"
+      },
+      "ac_preheat": {
+        "name": "A/C Pre-Heat"
+      },
+      "home_battery_storm_watch": {
+        "name": "Home Battery Charge Storm Watch"
+      }
+    },
+    "select": {
+      "conductor_dispatch_mode": {
+        "name": "Conductor Dispatch Mode"
+      }
+    },
+    "switch": {
+      "conductor_customer_opt_out": {
+        "name": "Conductor Customer Opt-Out"
+      }
+    }
   }
 }

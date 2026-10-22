@@ -181,7 +181,13 @@ class OrchestraDataUpdateCoordinator:
         self._poll_task: asyncio.Task | None = None
         self._is_stopped = False
 
-    def async_add_listener(self, update_callback: Callable[[], None]) -> Callable[[], None]:
+    def async_add_listener(
+        self,
+        update_callback: Callable[..., None],
+        context: Any = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Callable[[], None]:
         """Subscribe to updates."""
         self._listeners.append(update_callback)
 

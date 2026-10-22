@@ -305,12 +305,17 @@ class AutonomousHardwareHijacker:
             },
         }
 
-        try:
+        def _sync_io() -> None:
             current_raw = storage_path.read_text(encoding="utf-8") if storage_path.exists() else ""
             new_raw = json.dumps(default_dashboard_payload, indent=2)
-            # Only rewrite if changed significantly
             if len(new_raw) != len(current_raw):
                 storage_path.write_text(new_raw, encoding="utf-8")
                 _LOGGER.info("[Orchestra Hijacker] Synchronized default Grandpa dashboard (%d cards)", len(cards))
+
+        try:
+            if hasattr(self.hass, "async_add_executor_job"):
+                await self.hass.async_add_executor_job(_sync_io)
+            else:
+                _sync_io()
         except Exception as e:
             _LOGGER.debug("[Orchestra Hijacker] Could not sync .storage/lovelace: %s", e)

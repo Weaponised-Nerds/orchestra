@@ -577,4 +577,17 @@ class TestOrchestraHAPlugin(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(import_res["type"], "create_entry")
         self.assertEqual(import_res["data"]["node_id"], "import-node")
 
+    def test_coordinator_listener_signature(self) -> None:
+        """Verify async_add_listener accepts context positional argument from CoordinatorEntity."""
+        called = False
+        def cb():
+            nonlocal called
+            called = True
+
+        remove_fn = self.coordinator.async_add_listener(cb, "dummy_context")
+        self.coordinator.async_update_listeners()
+        self.assertTrue(called)
+        remove_fn()
+
+
 

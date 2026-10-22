@@ -108,8 +108,18 @@ class OrchestraBaseEntity(CoordinatorEntity):
         self._key = key
         self._prefix = prefix
         self._attr_unique_id = f"{prefix}_{key}"
+        if prefix == DOMAIN:
+            self._attr_has_entity_name = True
+            self._attr_translation_key = key
+        else:
+            self._attr_has_entity_name = False
         if entity_id:
             self.entity_id = entity_id
+
+    @property
+    def name(self) -> str | None:
+        """Return the explicit name of the entity."""
+        return getattr(self, "_attr_name", None)
 
     @property
     def device_info(self) -> Any:
@@ -118,5 +128,5 @@ class OrchestraBaseEntity(CoordinatorEntity):
             "name": "Orchestra Gateway",
             "manufacturer": "Weaponised Nerds",
             "model": "WEM Predictive Micro-Node",
-            "sw_version": "0.2.0",
+            "sw_version": "0.2.3",
         }

