@@ -18,7 +18,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from custom_components.orchestra.const import DOMAIN, INTERCEPTED_CLOUD_FLOW_DOMAINS
+try:
+    from .const import DOMAIN, INTERCEPTED_CLOUD_FLOW_DOMAINS
+except ImportError:
+    from custom_components.orchestra.const import DOMAIN, INTERCEPTED_CLOUD_FLOW_DOMAINS
 
 _LOGGER = logging.getLogger(__name__)
 

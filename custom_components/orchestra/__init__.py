@@ -20,35 +20,68 @@ import asyncio
 import logging
 from typing import Any
 
-from custom_components.orchestra.conductor_subscriber import ConductorSubscriber
-from custom_components.orchestra.const import (
-    CONF_CONDUCTOR_API_KEY,
-    CONF_CONDUCTOR_WEBHOOK_ID,
-    CONF_CONDUCTOR_WS_URL,
-    CONF_HPWH_MAX_TEMP_C,
-    CONF_HPWH_MIN_TEMP_C,
-    CONF_HVAC_MAX_SETPOINT_OFFSET_C,
-    CONF_HVAC_MIN_DWELL_SECONDS,
-    CONF_NGANGK_API_URL,
-    CONF_NODE_ID,
-    CONF_POLL_INTERVAL_SECONDS,
-    DEFAULT_CONDUCTOR_WEBHOOK_ID,
-    DEFAULT_CONDUCTOR_WS_URL,
-    DEFAULT_HPWH_MAX_TEMP_C,
-    DEFAULT_HPWH_MIN_TEMP_C,
-    DEFAULT_HVAC_MAX_SETPOINT_OFFSET_C,
-    DEFAULT_HVAC_MIN_DWELL_SECONDS,
-    DEFAULT_NGANGK_API_URL,
-    DEFAULT_NODE_ID,
-    DEFAULT_POLL_INTERVAL_SECONDS,
-    DOMAIN,
-    INTERCEPTED_CLOUD_FLOW_DOMAINS,
-    PLATFORMS,
-)
-from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
-from custom_components.orchestra.safety_guard import InProcessSafetyGuard
-from orchestra.config import OrchestraConfig
-from orchestra.orchestrator import OrchestraEngine
+try:
+    from .conductor_subscriber import ConductorSubscriber
+    from .const import (
+        CONF_CONDUCTOR_API_KEY,
+        CONF_CONDUCTOR_WEBHOOK_ID,
+        CONF_CONDUCTOR_WS_URL,
+        CONF_HPWH_MAX_TEMP_C,
+        CONF_HPWH_MIN_TEMP_C,
+        CONF_HVAC_MAX_SETPOINT_OFFSET_C,
+        CONF_HVAC_MIN_DWELL_SECONDS,
+        CONF_NGANGK_API_URL,
+        CONF_NODE_ID,
+        CONF_POLL_INTERVAL_SECONDS,
+        DEFAULT_CONDUCTOR_WEBHOOK_ID,
+        DEFAULT_CONDUCTOR_WS_URL,
+        DEFAULT_HPWH_MAX_TEMP_C,
+        DEFAULT_HPWH_MIN_TEMP_C,
+        DEFAULT_HVAC_MAX_SETPOINT_OFFSET_C,
+        DEFAULT_HVAC_MIN_DWELL_SECONDS,
+        DEFAULT_NGANGK_API_URL,
+        DEFAULT_NODE_ID,
+        DEFAULT_POLL_INTERVAL_SECONDS,
+        DOMAIN,
+        INTERCEPTED_CLOUD_FLOW_DOMAINS,
+        PLATFORMS,
+    )
+    from .coordinator import OrchestraDataUpdateCoordinator
+    from .safety_guard import InProcessSafetyGuard
+except ImportError:
+    from custom_components.orchestra.conductor_subscriber import ConductorSubscriber
+    from custom_components.orchestra.const import (
+        CONF_CONDUCTOR_API_KEY,
+        CONF_CONDUCTOR_WEBHOOK_ID,
+        CONF_CONDUCTOR_WS_URL,
+        CONF_HPWH_MAX_TEMP_C,
+        CONF_HPWH_MIN_TEMP_C,
+        CONF_HVAC_MAX_SETPOINT_OFFSET_C,
+        CONF_HVAC_MIN_DWELL_SECONDS,
+        CONF_NGANGK_API_URL,
+        CONF_NODE_ID,
+        CONF_POLL_INTERVAL_SECONDS,
+        DEFAULT_CONDUCTOR_WEBHOOK_ID,
+        DEFAULT_CONDUCTOR_WS_URL,
+        DEFAULT_HPWH_MAX_TEMP_C,
+        DEFAULT_HPWH_MIN_TEMP_C,
+        DEFAULT_HVAC_MAX_SETPOINT_OFFSET_C,
+        DEFAULT_HVAC_MIN_DWELL_SECONDS,
+        DEFAULT_NGANGK_API_URL,
+        DEFAULT_NODE_ID,
+        DEFAULT_POLL_INTERVAL_SECONDS,
+        DOMAIN,
+        INTERCEPTED_CLOUD_FLOW_DOMAINS,
+        PLATFORMS,
+    )
+    from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
+    from custom_components.orchestra.safety_guard import InProcessSafetyGuard
+try:
+    from orchestra.config import OrchestraConfig
+    from orchestra.orchestrator import OrchestraEngine
+except ImportError:
+    OrchestraConfig = None  # type: ignore
+    OrchestraEngine = None  # type: ignore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -82,11 +115,13 @@ async def async_setup(hass: Any, config: dict[str, Any]) -> bool:
     conductor_api_key = domain_cfg.get(CONF_CONDUCTOR_API_KEY)
     node_id = domain_cfg.get(CONF_NODE_ID, DEFAULT_NODE_ID)
 
-    orch_config = OrchestraConfig()
-    orch_config.safety.hvac_min_dwell_seconds = min_dwell
-    orch_config.safety.hvac_max_setpoint_offset_c = max_offset
-
-    engine = OrchestraEngine(orch_config)
+    if OrchestraConfig is not None and OrchestraEngine is not None:
+        orch_config = OrchestraConfig()
+        orch_config.safety.hvac_min_dwell_seconds = min_dwell
+        orch_config.safety.hvac_max_setpoint_offset_c = max_offset
+        engine = OrchestraEngine(orch_config)
+    else:
+        engine = None
     safety_guard = InProcessSafetyGuard(
         hvac_min_dwell_seconds=min_dwell,
         hvac_max_setpoint_offset_c=max_offset,
@@ -94,7 +129,10 @@ async def async_setup(hass: Any, config: dict[str, Any]) -> bool:
         hpwh_max_temp_c=max_hpwh,
     )
 
-    from custom_components.orchestra.flow_resolver import AutonomousHardwareHijacker
+    try:
+        from .flow_resolver import AutonomousHardwareHijacker
+    except ImportError:
+        from custom_components.orchestra.flow_resolver import AutonomousHardwareHijacker
 
     hardware_hijacker = AutonomousHardwareHijacker(hass)
     hardware_hijacker.start()

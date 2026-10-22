@@ -4,17 +4,30 @@ from __future__ import annotations
 
 from typing import Any
 
-from custom_components.orchestra.const import (
-    DOMAIN,
-    SENSOR_CONDUCTOR_CONTROL_SIGNAL,
-    SENSOR_WEM_OPERATIONAL_DEMAND,
-    SENSOR_WEM_RENEWABLE_AVAILABILITY,
-    SENSOR_WEM_WHOLESALE_PRICE,
-    SIGNAL_ENERGY_SOAK,
-    SIGNAL_LOAD_SHED,
-)
-from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
-from custom_components.orchestra.entity import Entity, OrchestraBaseEntity
+try:
+    from .const import (
+        DOMAIN,
+        SENSOR_CONDUCTOR_CONTROL_SIGNAL,
+        SENSOR_WEM_OPERATIONAL_DEMAND,
+        SENSOR_WEM_RENEWABLE_AVAILABILITY,
+        SENSOR_WEM_WHOLESALE_PRICE,
+        SIGNAL_ENERGY_SOAK,
+        SIGNAL_LOAD_SHED,
+    )
+    from .coordinator import OrchestraDataUpdateCoordinator
+    from .entity import Entity, OrchestraBaseEntity
+except ImportError:
+    from custom_components.orchestra.const import (
+        DOMAIN,
+        SENSOR_CONDUCTOR_CONTROL_SIGNAL,
+        SENSOR_WEM_OPERATIONAL_DEMAND,
+        SENSOR_WEM_RENEWABLE_AVAILABILITY,
+        SENSOR_WEM_WHOLESALE_PRICE,
+        SIGNAL_ENERGY_SOAK,
+        SIGNAL_LOAD_SHED,
+    )
+    from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
+    from custom_components.orchestra.entity import Entity, OrchestraBaseEntity
 
 try:
     from homeassistant.components.sensor import SensorEntity

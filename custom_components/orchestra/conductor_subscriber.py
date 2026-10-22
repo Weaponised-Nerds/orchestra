@@ -16,12 +16,20 @@ import json
 import logging
 from typing import Any
 
-from custom_components.orchestra.const import (
-    DEFAULT_CONDUCTOR_WEBHOOK_ID,
-    DEFAULT_CONDUCTOR_WS_URL,
-    DOMAIN,
-)
-from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
+try:
+    from .const import (
+        DEFAULT_CONDUCTOR_WEBHOOK_ID,
+        DEFAULT_CONDUCTOR_WS_URL,
+        DOMAIN,
+    )
+    from .coordinator import OrchestraDataUpdateCoordinator
+except ImportError:
+    from custom_components.orchestra.const import (
+        DEFAULT_CONDUCTOR_WEBHOOK_ID,
+        DEFAULT_CONDUCTOR_WS_URL,
+        DOMAIN,
+    )
+    from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 

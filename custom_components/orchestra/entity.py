@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from custom_components.orchestra.const import DOMAIN
-from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
+try:
+    from .const import DOMAIN
+    from .coordinator import OrchestraDataUpdateCoordinator
+except ImportError:
+    from custom_components.orchestra.const import DOMAIN
+    from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
 
 try:
     from homeassistant.helpers.entity import DeviceInfo, Entity

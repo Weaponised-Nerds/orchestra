@@ -5,23 +5,37 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from custom_components.orchestra.const import (
-    CONF_CONDUCTOR_WS_URL,
-    CONF_NGANGK_API_URL,
-    CONF_NODE_ID,
-    DEFAULT_CONDUCTOR_WS_URL,
-    DEFAULT_NGANGK_API_URL,
-    DEFAULT_NODE_ID,
-    DOMAIN,
-)
+try:
+    from .const import (
+        CONF_CONDUCTOR_WS_URL,
+        CONF_NGANGK_API_URL,
+        CONF_NODE_ID,
+        DEFAULT_CONDUCTOR_WS_URL,
+        DEFAULT_NGANGK_API_URL,
+        DEFAULT_NODE_ID,
+        DOMAIN,
+    )
+except ImportError:
+    from custom_components.orchestra.const import (
+        CONF_CONDUCTOR_WS_URL,
+        CONF_NGANGK_API_URL,
+        CONF_NODE_ID,
+        DEFAULT_CONDUCTOR_WS_URL,
+        DEFAULT_NGANGK_API_URL,
+        DEFAULT_NODE_ID,
+        DOMAIN,
+    )
 
 _LOGGER = logging.getLogger(__name__)
 
 try:
     from homeassistant import config_entries
     from homeassistant.data_entry_flow import FlowResult
+    from homeassistant.helpers import config_validation as cv
     import voluptuous as vol
+    _string_validator = cv.string
 except ImportError:
+    _string_validator = str
     # Lightweight fallback shim when running unit tests outside Home Assistant core
     class _MockConfigFlow:
         """Fallback mock for ConfigFlow when running outside Home Assistant."""
@@ -113,7 +127,19 @@ class OrchestraConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle the initial user step."""
-        if self._async_current_entries():
+        current_entries = []
+        if hasattr(self, "_async_current_entries"):
+            try:
+                current_entries = self._async_current_entries()
+            except Exception:
+                current_entries = []
+        elif hasattr(self, "_current_entries"):
+            try:
+                current_entries = self._current_entries()
+            except Exception:
+                current_entries = []
+
+        if current_entries:
             return self.async_abort(reason="already_configured")
 
         if user_input is not None:
@@ -124,9 +150,9 @@ class OrchestraConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema(
             {
-                vol.Optional(CONF_NODE_ID, default=DEFAULT_NODE_ID): str,
-                vol.Optional(CONF_NGANGK_API_URL, default=DEFAULT_NGANGK_API_URL): str,
-                vol.Optional(CONF_CONDUCTOR_WS_URL, default=DEFAULT_CONDUCTOR_WS_URL): str,
+                vol.Optional(CONF_NODE_ID, default=DEFAULT_NODE_ID): _string_validator,
+                vol.Optional(CONF_NGANGK_API_URL, default=DEFAULT_NGANGK_API_URL): _string_validator,
+                vol.Optional(CONF_CONDUCTOR_WS_URL, default=DEFAULT_CONDUCTOR_WS_URL): _string_validator,
             }
         )
 
@@ -139,10 +165,31 @@ class OrchestraConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, import_data: dict[str, Any]
     ) -> FlowResult:
         """Handle import from configuration.yaml or automated onboarding."""
-        if self._async_current_entries():
+        current_entries = []
+        if hasattr(self, "_async_current_entries"):
+            try:
+                current_entries = self._async_current_entries()
+            except Exception:
+                current_entries = []
+        elif hasattr(self, "_current_entries"):
+            try:
+                current_entries = self._current_entries()
+            except Exception:
+                current_entries = []
+
+        if current_entries:
             return self.async_abort(reason="already_configured")
         return self.async_create_entry(title="Orchestra", data=import_data or {})
 
 
 # Direct reference for backward compatibility / HA reflection
 ConfigFlow = OrchestraConfigFlow
+
+if hasattr(config_entries, "HANDLERS"):
+    try:
+        config_entries.HANDLERS.register(DOMAIN)(OrchestraConfigFlow)
+    except Exception:
+        try:
+            config_entries.HANDLERS[DOMAIN] = OrchestraConfigFlow
+        except Exception:
+            pass

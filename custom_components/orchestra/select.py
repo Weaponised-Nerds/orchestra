@@ -4,13 +4,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from custom_components.orchestra.const import (
-    DOMAIN,
-    SELECT_CONDUCTOR_DISPATCH_MODE,
-    VALID_CONTROL_SIGNALS,
-)
-from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
-from custom_components.orchestra.entity import Entity, OrchestraBaseEntity
+try:
+    from .const import (
+        DOMAIN,
+        SELECT_CONDUCTOR_DISPATCH_MODE,
+        VALID_CONTROL_SIGNALS,
+    )
+    from .coordinator import OrchestraDataUpdateCoordinator
+    from .entity import Entity, OrchestraBaseEntity
+except ImportError:
+    from custom_components.orchestra.const import (
+        DOMAIN,
+        SELECT_CONDUCTOR_DISPATCH_MODE,
+        VALID_CONTROL_SIGNALS,
+    )
+    from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
+    from custom_components.orchestra.entity import Entity, OrchestraBaseEntity
 
 try:
     from homeassistant.components.select import SelectEntity

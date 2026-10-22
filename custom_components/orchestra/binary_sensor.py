@@ -4,16 +4,28 @@ from __future__ import annotations
 
 from typing import Any
 
-from custom_components.orchestra.const import (
-    BINARY_SENSOR_AC_PRECOOL,
-    BINARY_SENSOR_AC_PREHEAT,
-    BINARY_SENSOR_EV_CHARGE_NOW,
-    BINARY_SENSOR_HEAT_PUMP_RUN_NOW,
-    BINARY_SENSOR_HOME_BATTERY_STORM_WATCH,
-    DOMAIN,
-)
-from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
-from custom_components.orchestra.entity import Entity, OrchestraBaseEntity
+try:
+    from .const import (
+        BINARY_SENSOR_AC_PRECOOL,
+        BINARY_SENSOR_AC_PREHEAT,
+        BINARY_SENSOR_EV_CHARGE_NOW,
+        BINARY_SENSOR_HEAT_PUMP_RUN_NOW,
+        BINARY_SENSOR_HOME_BATTERY_STORM_WATCH,
+        DOMAIN,
+    )
+    from .coordinator import OrchestraDataUpdateCoordinator
+    from .entity import Entity, OrchestraBaseEntity
+except ImportError:
+    from custom_components.orchestra.const import (
+        BINARY_SENSOR_AC_PRECOOL,
+        BINARY_SENSOR_AC_PREHEAT,
+        BINARY_SENSOR_EV_CHARGE_NOW,
+        BINARY_SENSOR_HEAT_PUMP_RUN_NOW,
+        BINARY_SENSOR_HOME_BATTERY_STORM_WATCH,
+        DOMAIN,
+    )
+    from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
+    from custom_components.orchestra.entity import Entity, OrchestraBaseEntity
 
 try:
     from homeassistant.components.binary_sensor import (

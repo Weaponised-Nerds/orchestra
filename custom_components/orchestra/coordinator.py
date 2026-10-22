@@ -18,32 +18,60 @@ import logging
 from typing import Any, Callable
 import urllib.request
 
-from custom_components.orchestra.const import (
-    ACTION_BATTERY_STORM_WATCH_HOLD,
-    ACTION_EV_CHARGE_NOW,
-    ACTION_EV_LOAD_SHED_PAUSED,
-    ACTION_HPWH_RUN_NOW,
-    ACTION_HVAC_PRE_COOL,
-    ACTION_HVAC_PRE_HEAT,
-    ASSET_EV,
-    ASSET_HEAT_PUMP,
-    ASSET_HOME_BATTERY,
-    ASSET_HVAC,
-    DEFAULT_HVAC_MAX_SETPOINT_OFFSET_C,
-    DEFAULT_HVAC_MIN_DWELL_SECONDS,
-    DEFAULT_NGANGK_API_URL,
-    DEFAULT_POLL_INTERVAL_SECONDS,
-    DOMAIN,
-    EVENT_ORCHESTRA_ASSET_DIRECTIVE,
-    EVENT_ORCHESTRA_CONDUCTOR_DISPATCH,
-    FALLBACK_NGANGK_API_URL,
-    SIGNAL_ENERGY_SOAK,
-    SIGNAL_LOAD_SHED,
-    SIGNAL_NORMAL_AUTO,
-    SIGNAL_OPT_OUT,
-    VALID_CONTROL_SIGNALS,
-)
-from custom_components.orchestra.safety_guard import InProcessSafetyGuard
+try:
+    from .const import (
+        ACTION_BATTERY_STORM_WATCH_HOLD,
+        ACTION_EV_CHARGE_NOW,
+        ACTION_EV_LOAD_SHED_PAUSED,
+        ACTION_HPWH_RUN_NOW,
+        ACTION_HVAC_PRE_COOL,
+        ACTION_HVAC_PRE_HEAT,
+        ASSET_EV,
+        ASSET_HEAT_PUMP,
+        ASSET_HOME_BATTERY,
+        ASSET_HVAC,
+        DEFAULT_HVAC_MAX_SETPOINT_OFFSET_C,
+        DEFAULT_HVAC_MIN_DWELL_SECONDS,
+        DEFAULT_NGANGK_API_URL,
+        DEFAULT_POLL_INTERVAL_SECONDS,
+        DOMAIN,
+        EVENT_ORCHESTRA_ASSET_DIRECTIVE,
+        EVENT_ORCHESTRA_CONDUCTOR_DISPATCH,
+        FALLBACK_NGANGK_API_URL,
+        SIGNAL_ENERGY_SOAK,
+        SIGNAL_LOAD_SHED,
+        SIGNAL_NORMAL_AUTO,
+        SIGNAL_OPT_OUT,
+        VALID_CONTROL_SIGNALS,
+    )
+    from .safety_guard import InProcessSafetyGuard
+except ImportError:
+    from custom_components.orchestra.const import (
+        ACTION_BATTERY_STORM_WATCH_HOLD,
+        ACTION_EV_CHARGE_NOW,
+        ACTION_EV_LOAD_SHED_PAUSED,
+        ACTION_HPWH_RUN_NOW,
+        ACTION_HVAC_PRE_COOL,
+        ACTION_HVAC_PRE_HEAT,
+        ASSET_EV,
+        ASSET_HEAT_PUMP,
+        ASSET_HOME_BATTERY,
+        ASSET_HVAC,
+        DEFAULT_HVAC_MAX_SETPOINT_OFFSET_C,
+        DEFAULT_HVAC_MIN_DWELL_SECONDS,
+        DEFAULT_NGANGK_API_URL,
+        DEFAULT_POLL_INTERVAL_SECONDS,
+        DOMAIN,
+        EVENT_ORCHESTRA_ASSET_DIRECTIVE,
+        EVENT_ORCHESTRA_CONDUCTOR_DISPATCH,
+        FALLBACK_NGANGK_API_URL,
+        SIGNAL_ENERGY_SOAK,
+        SIGNAL_LOAD_SHED,
+        SIGNAL_NORMAL_AUTO,
+        SIGNAL_OPT_OUT,
+        VALID_CONTROL_SIGNALS,
+    )
+    from custom_components.orchestra.safety_guard import InProcessSafetyGuard
 
 _LOGGER = logging.getLogger(__name__)
 
