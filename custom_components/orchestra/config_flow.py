@@ -16,7 +16,7 @@ class OrchestraConfigFlow:
         """Immediately create the Orchestra entry without prompting for cloud credentials."""
         return {
             "type": "create_entry",
-            "title": "Zenith Orchestra Cloud-Liberation Engine",
+            "title": "Orchestra",
             "domain": DOMAIN,
             "data": user_input or {"cloud_liberation_mode": "strict"},
         }

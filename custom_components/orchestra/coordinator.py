@@ -230,7 +230,7 @@ class OrchestraDataUpdateCoordinator:
                 try:
                     req = urllib.request.Request(
                         url,
-                        headers={"User-Agent": "Zenith-Orchestra-HA-Plugin/1.0", "Accept": "application/json"},
+                        headers={"User-Agent": "Orchestra-HA-Plugin/1.0", "Accept": "application/json"},
                     )
                     with urllib.request.urlopen(req, timeout=5.0) as resp:
                         return json.loads(resp.read().decode("utf-8"))

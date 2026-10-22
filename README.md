@@ -1,6 +1,7 @@
 # Orchestra (`Z-Node` Cloud-Liberation & HA Process Hijacker)
+### Developed by Weaponised Nerds
 
-**Orchestra** is the software core for the **Zenith Micro-Node (`Z-Node`)** hardware appliance. It hijacks the standard Home Assistant initialization, discovery, and configuration lifecycle to onboard residential energy, HVAC, heat pump, EV charging, and smart home hardware **100% locally without vendor cloud accounts**.
+**Orchestra** is developed by **Weaponised Nerds** as the software core for the **Micro-Node (`Z-Node`)** hardware appliance. It hijacks the standard Home Assistant initialization, discovery, and configuration lifecycle to onboard residential energy, HVAC, heat pump, EV charging, and smart home hardware **100% locally without vendor cloud accounts**.
 
 ---
 
@@ -55,13 +56,13 @@ Orchestra eliminates this via two coordinated layers:
 
 ## 3. Conductor VPP Integration & Custom Component (`custom_components/orchestra`)
 
-The **Orchestra Custom Component** implements the **Conductor $\leftrightarrow$ Home Assistant Integration Specification (v1.2.0)** for Western Australia's South West Interconnected System (SWIS) WEM and Zenith Microgrids.
+The **Orchestra Custom Component** implements the **Conductor $\leftrightarrow$ Home Assistant Integration Specification (v1.2.0)** for Western Australia's South West Interconnected System (SWIS) WEM and local precinct microgrids.
 
 ### 3.1 Privacy-First Regional Broadcast Architecture
 Conductor acknowledges privacy concerns and does **not** collect private user data or address individual homes:
 * **Anonymous Pub-Sub:** Conductor operates as a regional market transmitter (like an energy weather broadcast). Edge gateways connect as **anonymous subscribers** to the regional WEM market broadcast (`wss://conductor.deezlepower.com/v1/broadcast`).
 * **Zero Telemetry Exfiltration:** Edge gateways never upload private household load curves, appliance states, battery SoC, or occupancy data to the cloud.
-* **Retail TOU Tariff Settlement:** Zenith operates as the energy retailer and microgrid operator. Physical revenue-grade TOU smart meters settle variable electricity tariffs and solar credits at the boundary. The in-home dividend (`sensor.orchestra_accumulated_dividend_aud`) is purely educational and calculated locally.
+* **Retail TOU Tariff Settlement:** Operating with physical revenue-grade TOU smart meters that settle variable electricity tariffs and solar credits at the boundary. The in-home dividend (`sensor.orchestra_accumulated_dividend_aud`) is purely educational and calculated locally.
 * **Closed-Loop Grid Observability:** Conductor measures collective demand response **directly on the physical electrical grid** (via aggregate WEM Operational Demand MW, Western Power substation telemetry, and wholesale clearing price feedback) and dynamically adjusts its broadcast signals.
 * **Cloudflare Workers Durable Objects:** The WebSocket broadcaster runs on Cloudflare Workers Durable Objects using the **WebSocket Hibernation API**, consuming **0 GB-seconds** while edge gateways hibernate.
 

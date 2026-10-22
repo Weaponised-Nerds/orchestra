@@ -111,8 +111,8 @@ class OrchestraBaseEntity(CoordinatorEntity):
     def device_info(self) -> Any:
         return {
             "identifiers": {(DOMAIN, "orchestra_gateway")},
-            "name": "Zenith Orchestra Gateway",
-            "manufacturer": "Zenith Energy",
+            "name": "Orchestra Gateway",
+            "manufacturer": "Weaponised Nerds",
             "model": "WEM Predictive Micro-Node",
             "sw_version": "0.2.0",
         }

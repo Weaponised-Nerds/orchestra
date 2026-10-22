@@ -1,13 +1,13 @@
 {
   "domain": "orchestra",
-  "name": "Zenith Orchestra WEM Energy & Conductor Integration",
+  "name": "Orchestra",
   "version": "0.2.0",
-  "documentation": "https://zenith.energy/orchestra",
+  "documentation": "https://github.com/Weaponised-Nerds/orchestra",
   "issue_tracker": "https://github.com/Weaponised-Nerds/orchestra/issues",
   "dependencies": ["http", "webhook"],
   "after_dependencies": ["onboarding", "zeroconf", "ssdp", "dhcp", "usb", "bluetooth"],
-  "codeowners": ["@zenith-energy"],
+  "codeowners": ["@weaponised-nerds"],
   "config_flow": true,
   "iot_class": "local_push",
-  "integration_type": "system"
+  "integration_type": "hub"
 }
