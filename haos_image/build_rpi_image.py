@@ -39,7 +39,7 @@ from orchestra.agent.framework import GrandpaCommissioningAgent
 from orchestra.config import OrchestraConfig
 from orchestra.orchestrator import OrchestraEngine
 
-OFFICIAL_HAOS_VERSION = "15.2"
+OFFICIAL_HAOS_VERSION = "18.3"
 
 BOARD_RELEASE_URLS: dict[str, str] = {
     "rpi5-64": (
@@ -58,12 +58,23 @@ BOARD_RELEASE_URLS: dict[str, str] = {
 
 MTOOLS_DIR = Path("/opt/homebrew/bin")
 XZ_BIN = Path("/opt/homebrew/bin/xz")
+DEBUGFS_BIN = Path("/opt/homebrew/opt/e2fsprogs/sbin/debugfs")
+if not DEBUGFS_BIN.exists():
+    sh_debugfs = shutil.which("debugfs")
+    if sh_debugfs:
+        DEBUGFS_BIN = Path(sh_debugfs)
 
 
-def stage_orchestra_supervisor_payload(build_dir: Path, dist_dir: Path) -> dict[str, Any]:
+def stage_orchestra_supervisor_payload(
+    build_dir: Path,
+    dist_dir: Path,
+    clean_platform: bool = True,
+) -> dict[str, Any]:
     """
-    Run the full 6-stage Grandpa-Simple Autonomous Agent pipeline into a staging
-    `/mnt/data/supervisor` tree and pack it into `dist/orchestra-preload.tar.gz`.
+    Stage the Orchestra supervisor payload into `/mnt/data/supervisor` tree and pack it.
+    If `clean_platform` is True (default for production images), bypasses onboarding and
+    seeds generic system auth + clean overview dashboard WITHOUT hardcoding any specific
+    home hardware (which is discovered dynamically by the in-process hijacker).
     """
     staging_supervisor = build_dir / "staging_supervisor"
     if staging_supervisor.exists():
@@ -77,11 +88,77 @@ def stage_orchestra_supervisor_payload(build_dir: Path, dist_dir: Path) -> dict[
     addon_target_dir.mkdir(parents=True, exist_ok=True)
     dns_target_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Execute the full 6-stage Grandpa-Simple setup into ha_config_dir
     cfg = OrchestraConfig(ha_config_dir=ha_config_dir)
     engine = OrchestraEngine(cfg)
-    agent = GrandpaCommissioningAgent(engine)
-    commissioning_result = asyncio.run(agent.run_autonomous_grandpa_setup())
+
+    if clean_platform:
+        # Generic zero-touch bootstrap: NO hardcoded equipment!
+        # 1. Bypass onboarding, seed auth, core.config, core.analytics
+        engine.process_hijacker.bypass_onboarding()
+        engine.storage_injector.initialize_registries()
+
+        # 2. Pre-seed clean default Grandpa Overview dashboard in .storage/lovelace
+        default_dashboard = {
+            "version": 1,
+            "minor_version": 1,
+            "key": "lovelace",
+            "data": {
+                "config": {
+                    "title": "My Home",
+                    "views": [
+                        {
+                            "title": "My Home",
+                            "path": "default_view",
+                            "icon": "mdi:home-heart",
+                            "badges": [],
+                            "cards": [
+                                {
+                                    "type": "markdown",
+                                    "title": "Welcome Home — Orchestra Energy Concierge Active",
+                                    "content": (
+                                        "**Everything is running smoothly and automatically.**\n"
+                                        "- Household comfort and energy efficiency are actively managed.\n"
+                                        "- Discovered devices will appear here automatically without diagnostic clutter."
+                                    ),
+                                }
+                            ],
+                        },
+                        {
+                            "title": "Energy & Savings",
+                            "path": "energy-and-savings",
+                            "icon": "mdi:cash-multiple",
+                            "badges": [],
+                            "cards": [
+                                {
+                                    "type": "energy-distribution",
+                                    "title": "Live Home Power Flow (Solar, Battery, Home & Street Grid)",
+                                    "link_dashboard": True,
+                                },
+                            ],
+                        },
+                    ],
+                }
+            },
+        }
+        (ha_config_dir / ".storage" / "lovelace").write_text(json.dumps(default_dashboard, indent=2), encoding="utf-8")
+
+        automations_path = ha_config_dir / "automations.yaml"
+        if not automations_path.exists():
+            automations_path.write_text("[]\n", encoding="utf-8")
+
+        dnsmasq_file = ha_config_dir / "orchestra_dnsmasq_liberation.conf"
+        if not dnsmasq_file.exists():
+            dnsmasq_file.write_text(engine.cloud_blocker.render_dnsmasq_conf(), encoding="utf-8")
+
+        devices_onboarded = 0
+        visible_entities = 0
+        circuits_identified = 0
+    else:
+        agent = GrandpaCommissioningAgent(engine)
+        commissioning_result = asyncio.run(agent.run_autonomous_grandpa_setup())
+        devices_onboarded = commissioning_result.total_devices_onboarded
+        visible_entities = commissioning_result.total_visible_entities
+        circuits_identified = len(commissioning_result.circuit_probe_report.identified_circuits)
 
     # 2. Copy `custom_components/orchestra` and `orchestra` package into `/config`
     shutil.copytree(
@@ -114,8 +191,16 @@ def stage_orchestra_supervisor_payload(build_dir: Path, dist_dir: Path) -> dict[
         dns_target_dir / "orchestra_dnsmasq_liberation.conf",
     )
 
-    # 5. Create `dist/orchestra-preload.tar.gz`
+    # 5. Export Orchestra-Agent Long-Lived Access Token and credentials to dist/
     dist_dir.mkdir(parents=True, exist_ok=True)
+    token_src = ha_config_dir / "orchestra_agent_token.txt"
+    if token_src.exists():
+        shutil.copy2(token_src, dist_dir / "orchestra_agent_token.txt")
+    creds_src = ha_config_dir / "orchestra_agent_credentials.json"
+    if creds_src.exists():
+        shutil.copy2(creds_src, dist_dir / "orchestra_agent_credentials.json")
+
+    # 6. Create `dist/orchestra-preload.tar.gz`
     preload_tar_path = dist_dir / "orchestra-preload.tar.gz"
     with tarfile.open(preload_tar_path, "w:gz") as tar:
         for child in staging_supervisor.iterdir():
@@ -125,9 +210,10 @@ def stage_orchestra_supervisor_payload(build_dir: Path, dist_dir: Path) -> dict[
         "staging_supervisor": str(staging_supervisor),
         "preload_tar_path": str(preload_tar_path),
         "preload_tar_size_bytes": preload_tar_path.stat().st_size,
-        "devices_onboarded": commissioning_result.total_devices_onboarded,
-        "visible_entities": commissioning_result.total_visible_entities,
-        "circuits_identified": len(commissioning_result.circuit_probe_report.identified_circuits),
+        "devices_onboarded": devices_onboarded,
+        "visible_entities": visible_entities,
+        "circuits_identified": circuits_identified,
+        "token_path": str(dist_dir / "orchestra_agent_token.txt"),
     }
 
 
@@ -552,17 +638,106 @@ def _write_gpt_headers(
         f.write(backup_hdr)
 
 
+def inject_supervisor_payload_into_ext4_partition(
+    work_img: Path,
+    data_partition_offset_bytes: int,
+    data_partition_size_bytes: int,
+    staging_supervisor_dir: Path,
+    build_dir: Path,
+) -> dict[str, Any]:
+    """
+    Directly inject `/supervisor` directory tree (including `homeassistant/.storage`,
+    `homeassistant/custom_components/orchestra`, `addons/local/orchestra`, and `dns`)
+    into the `hassos-data` ext4 partition using `debugfs` without requiring root or mounting.
+    """
+    debugfs_bin = DEBUGFS_BIN if DEBUGFS_BIN.exists() else Path(shutil.which("debugfs") or "debugfs")
+    if not debugfs_bin.exists() and not shutil.which(str(debugfs_bin)):
+        raise RuntimeError(
+            "debugfs (from e2fsprogs) is required to inject into ext4 hassos-data partition. "
+            "Install with: brew install e2fsprogs"
+        )
+
+    p8_img = build_dir / "p8_hassos_data_working.img"
+    # 1. Slice out the data partition
+    with work_img.open("rb") as f_src, p8_img.open("wb") as f_dst:
+        f_src.seek(data_partition_offset_bytes)
+        remaining = data_partition_size_bytes
+        while remaining > 0:
+            chunk = f_src.read(min(remaining, 64 * 1024 * 1024))
+            if not chunk:
+                break
+            f_dst.write(chunk)
+            remaining -= len(chunk)
+
+    # 2. Collect all directories and files relative to staging_supervisor_dir
+    commands: list[str] = []
+    all_dirs: list[str] = []
+    all_files: list[tuple[Path, str]] = []
+
+    for p in staging_supervisor_dir.rglob("*"):
+        rel = p.relative_to(staging_supervisor_dir)
+        target = "/supervisor/" + str(rel).replace("\\", "/")
+        if p.is_dir():
+            all_dirs.append(target)
+        elif p.is_file():
+            all_files.append((p.resolve(), target))
+
+    all_dirs.sort(key=lambda d: len(d.split("/")))
+
+    commands.append("mkdir /supervisor")
+    for d in all_dirs:
+        commands.append(f"mkdir {d}")
+
+    for src_file, target_path in all_files:
+        commands.append(f"write {src_file} {target_path}")
+
+    script_path = build_dir / "inject_supervisor.debugfs"
+    script_path.write_text("\n".join(commands) + "\n", encoding="utf-8")
+
+    # 3. Execute debugfs in batch mode
+    res = subprocess.run(
+        [str(debugfs_bin), "-w", "-f", str(script_path), str(p8_img)],
+        capture_output=True,
+        text=True,
+    )
+    if res.returncode != 0:
+        raise RuntimeError(f"debugfs failed with exit code {res.returncode}: {res.stderr}")
+
+    # 4. Write modified partition back into work_img
+    with p8_img.open("rb") as f_src, work_img.open("r+b") as f_dst:
+        f_dst.seek(data_partition_offset_bytes)
+        remaining = data_partition_size_bytes
+        while remaining > 0:
+            chunk = f_src.read(min(remaining, 64 * 1024 * 1024))
+            if not chunk:
+                break
+            f_dst.write(chunk)
+            remaining -= len(chunk)
+
+    if p8_img.exists():
+        p8_img.unlink()
+
+    return {
+        "status": "injected",
+        "total_commands": len(commands),
+        "directories_created": len(all_dirs) + 1,
+        "files_written": len(all_files),
+    }
+
+
 def patch_official_haos_image(
     base_xz_or_img: Path,
     output_img_xz: Path,
     boot_overlay_dir: Path,
     build_dir: Path,
     board: str = "rpi5-64",
+    staging_supervisor_dir: Path | None = None,
 ) -> dict[str, Any]:
     """
     Decompress an official `haos_rpi5-64-*.img.xz` (or rpi3/rpi4), parse its GPT table
     to find `hassos-boot`, inject the Orchestra preload archive + `CONFIG` rules +
-    board-specific `config.txt` tuning via `mtools`, and compress to `output_img_xz`.
+    board-specific `config.txt` tuning via `mtools`, inject the supervisor payload
+    directly into `hassos-data` ext4 partition via `debugfs`, and compress to `output_img_xz`.
     """
     work_img = build_dir / f"haos_{board}_working.img"
     if base_xz_or_img.suffix == ".xz":
@@ -581,6 +756,17 @@ def patch_official_haos_image(
         board=board,
     )
 
+    data_part = next((p for p in partitions if "data" in p["name"].lower()), None)
+    ext4_result = None
+    if data_part and staging_supervisor_dir and staging_supervisor_dir.exists():
+        ext4_result = inject_supervisor_payload_into_ext4_partition(
+            work_img=work_img,
+            data_partition_offset_bytes=data_part["offset_bytes"],
+            data_partition_size_bytes=data_part["size_bytes"],
+            staging_supervisor_dir=staging_supervisor_dir,
+            build_dir=build_dir,
+        )
+
     raw_dist_img = output_img_xz.with_suffix("")
     shutil.copy2(work_img, raw_dist_img)
 
@@ -591,6 +777,7 @@ def patch_official_haos_image(
         "patched_official_image_xz": str(output_img_xz),
         "patched_official_image_raw": str(raw_dist_img),
         "boot_partition_injected": boot_part,
+        "data_partition_injected": ext4_result,
         "total_gpt_partitions": len(partitions),
         "all_gpt_partitions": partitions,
     }
@@ -618,6 +805,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Download the official HAOS release for --board and patch it",
     )
     parser.add_argument(
+        "--simulate-hardware",
+        action="store_true",
+        help="Seed simulated test-bench hardware into registries (default: False, generic clean platform)",
+    )
+    parser.add_argument(
         "--stage-only",
         action="store_true",
         help="Only build dist/orchestra-preload.tar.gz without building .img.xz",
@@ -632,7 +824,11 @@ def main(argv: list[str] | None = None) -> int:
     dist_dir.mkdir(parents=True, exist_ok=True)
 
     # Step 1: Stage and pack the pre-hijacked Home Assistant + Grandpa Agent bundle
-    stage_info = stage_orchestra_supervisor_payload(build_dir, dist_dir)
+    stage_info = stage_orchestra_supervisor_payload(
+        build_dir,
+        dist_dir,
+        clean_platform=not args.simulate_hardware,
+    )
     preload_tar = Path(stage_info["preload_tar_path"])
 
     if args.stage_only:
@@ -667,6 +863,7 @@ def main(argv: list[str] | None = None) -> int:
             boot_overlay_dir,
             build_dir,
             board=args.board,
+            staging_supervisor_dir=Path(stage_info["staging_supervisor"]),
         )
     else:
         img_info = _build_gpt_disk_with_fat32_boot(

@@ -8,13 +8,18 @@ suppresses cloud-tethered discovery flows in favor of Orchestra's local adapters
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
 from pathlib import Path
 import secrets
+import time
 from typing import Any
 import uuid
+
+import bcrypt
+import jwt
 
 from orchestra.config import OrchestraConfig
 
@@ -115,7 +120,7 @@ class HAProcessHijacker:
         }
         self._write_storage_file("core.analytics", analytics_payload)
 
-        # 4. Provision headless Orchestra system owner & long-lived token in `.storage/auth`
+        # 4. Provision headless Orchestra-Agent system owner & long-lived token in `.storage/auth`
         auth_summary = self._seed_local_auth()
 
         # 5. Write `configuration.yaml` loading the `orchestra` custom component
@@ -125,22 +130,62 @@ class HAProcessHijacker:
             "onboarding_bypassed": True,
             "storage_dir": str(self.storage_dir),
             "admin_user_id": auth_summary["user_id"],
+            "admin_user_name": auth_summary["user_name"],
+            "admin_username": auth_summary["username"],
             "daemon_access_token": auth_summary["access_token"],
+            "token_file": auth_summary["token_file"],
             "suppressed_cloud_domains": CLOUD_DOMAINS_TO_SUPPRESS,
         }
 
     def _seed_local_auth(self) -> dict[str, str]:
-        """Create the local system owner and refresh token inside `.storage/auth`."""
+        """
+        Create the local system owner account in the name of Orchestra-Agent,
+        pre-seed credentials in `.storage/auth` and `.storage/auth_provider.homeassistant`,
+        and generate a valid HS256 JWT Long-Lived Access Token for immediate Agent takeover.
+        """
         user_id = uuid.uuid4().hex
         refresh_token_id = uuid.uuid4().hex
+        cred_id = uuid.uuid4().hex
         jwt_key = secrets.token_hex(64)
-        raw_token = secrets.token_urlsafe(48)
-        access_token = hmac.new(
-            jwt_key.encode("utf-8"),
-            raw_token.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
+        raw_token = secrets.token_hex(64)
 
+        user_name = "Orchestra-Agent"
+        username = "orchestra-agent"
+        password = "OrchestraAgent2026!"
+
+        # 1. Store bcrypt password hash in `.storage/auth_provider.homeassistant`
+        hashed_bytes = bcrypt.hashpw(password.encode("utf-8")[:72], bcrypt.gensalt(rounds=12))
+        hashed_b64 = base64.b64encode(hashed_bytes).decode("ascii")
+
+        auth_provider_payload = {
+            "version": 1,
+            "minor_version": 1,
+            "key": "auth_provider.homeassistant",
+            "data": {
+                "users": [
+                    {
+                        "username": username,
+                        "password": hashed_b64,
+                    }
+                ]
+            },
+        }
+        self._write_storage_file("auth_provider.homeassistant", auth_provider_payload)
+
+        # 2. Generate standard Home Assistant HS256 JWT Long-Lived Access Token
+        now_ts = int(time.time())
+        lifespan_seconds = 315360000  # 10 years
+        access_token = jwt.encode(
+            {
+                "iss": refresh_token_id,
+                "iat": now_ts,
+                "exp": now_ts + lifespan_seconds,
+            },
+            jwt_key,
+            algorithm="HS256",
+        )
+
+        # 3. Provision `.storage/auth` with Orchestra-Agent owner and refresh token
         auth_payload = {
             "version": 1,
             "minor_version": 1,
@@ -152,9 +197,9 @@ class HAProcessHijacker:
                         "group_ids": ["system-admin"],
                         "is_owner": True,
                         "is_active": True,
-                        "name": "Zenith Orchestra Daemon",
+                        "name": user_name,
                         "system_generated": False,
-                        "local_only": True,
+                        "local_only": False,
                     }
                 ],
                 "groups": [
@@ -164,23 +209,23 @@ class HAProcessHijacker:
                 ],
                 "credentials": [
                     {
-                        "id": uuid.uuid4().hex,
+                        "id": cred_id,
                         "user_id": user_id,
                         "auth_provider_type": "homeassistant",
                         "auth_provider_id": None,
-                        "data": {"username": "orchestra"},
+                        "data": {"username": username},
                     }
                 ],
                 "refresh_tokens": [
                     {
                         "id": refresh_token_id,
                         "user_id": user_id,
-                        "client_id": "http://zenith-node.local/",
-                        "client_name": "Orchestra Local Hijack Daemon",
+                        "client_id": "http://homeassistant.local:8123/",
+                        "client_name": "Orchestra-Agent Long Lived Token",
                         "client_icon": None,
                         "token_type": "long_lived_access_token",
-                        "created_at": "2026-10-16T00:00:00+00:00",
-                        "access_token_expiration": 315360000.0,
+                        "created_at": "2026-10-19T00:00:00+00:00",
+                        "access_token_expiration": float(lifespan_seconds),
                         "token": raw_token,
                         "jwt_key": jwt_key,
                         "last_used_at": None,
@@ -193,7 +238,35 @@ class HAProcessHijacker:
             },
         }
         self._write_storage_file("auth", auth_payload)
-        return {"user_id": user_id, "access_token": access_token}
+
+        # 4. Write token and credentials files for seamless agent pickup
+        token_file = self.config.ha_config_dir / "orchestra_agent_token.txt"
+        token_file.write_text(f"{access_token}\n", encoding="utf-8")
+
+        creds_file = self.config.ha_config_dir / "orchestra_agent_credentials.json"
+        creds_file.write_text(
+            json.dumps(
+                {
+                    "user_name": user_name,
+                    "username": username,
+                    "password": password,
+                    "access_token": access_token,
+                    "user_id": user_id,
+                    "refresh_token_id": refresh_token_id,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        return {
+            "user_id": user_id,
+            "user_name": user_name,
+            "username": username,
+            "password": password,
+            "access_token": access_token,
+            "token_file": str(token_file),
+        }
 
     def _write_configuration_yaml(self) -> None:
         """Write a hardened `configuration.yaml` loading the in-process `orchestra` hook."""
@@ -210,9 +283,9 @@ homeassistant:
   country: {self.config.country}
   time_zone: "{self.config.time_zone}"
 
-# Load the in-process Orchestra hijack custom component
+# Load the in-process Orchestra hijack custom component in hybrid mode
 orchestra:
-  cloud_liberation_mode: strict
+  cloud_liberation_mode: hybrid
   ocpp_port: {self.config.ocpp_server_port}
   ngangk_api_url: "{self.config.ngangk_api_base_url}"
   hvac_min_dwell_seconds: {self.config.safety.hvac_min_dwell_seconds}

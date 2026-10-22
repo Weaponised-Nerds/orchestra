@@ -151,12 +151,98 @@ def _print_matrix() -> int:
     return 0
 
 
+def _run_agent_takeover(
+    host: str,
+    port: int,
+    token: str | None,
+    timeout: float,
+    non_interactive: bool,
+) -> int:
+    from orchestra.agent.hybrid_runner import OrchestraHybridAgent, validate_target_safety
+
+    validate_target_safety(host)
+
+    print("=" * 88)
+    print(" ZENITH ORCHESTRA: HYBRID AGENT TAKEOVER & INTERACTIVE COMMISSIONING")
+    print("=" * 88)
+    print(f"Target Home Assistant : http://{host}:{port}")
+
+    agent = OrchestraHybridAgent(
+        host=host,
+        port=port,
+        token=token,
+        interactive=not non_interactive,
+    )
+    if not agent.token:
+        print("ERROR: No Long-Lived Access Token found. Provide via --token or dist/orchestra_agent_token.txt")
+        return 1
+
+    print(f"Token Loaded          : {agent.token[:15]}... (Orchestra-Agent)")
+    print(f"Waiting for HA Core   : timeout={timeout:.0f}s...")
+
+    try:
+        result = agent.run_full_takeover(timeout_seconds=timeout)
+    except Exception as err:
+        print(f"\nTakeover Error: {err}")
+        return 1
+
+    print("-" * 88)
+    print(" TAKEOVER EXECUTION SUMMARY")
+    print("-" * 88)
+    print(f"Authenticated User    : {result.authenticated_user}")
+    print(f"Discovered Flows Handled: {len(result.flows_resolved)}")
+    for f in result.flows_resolved:
+        print(f"  • [{f.domain}] {f.title}: {f.action_taken} ({f.status})")
+    print(f"Entities Curated      : {result.entities_renamed}")
+    print(f"Diagnostic Noise Hidden: {result.entities_hidden_noise}")
+    print(f"Rooms Ensured         : {', '.join(result.areas_ensured[:5])}...")
+    print(f"Overview Dashboard    : {'Curated (/lovelace)' if result.dashboard_curated else 'Existing'}")
+    print("-" * 88)
+    print(f"Agent Message         : \"{result.handover_message}\"")
+    print("=" * 88)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="orchestra",
         description="Zenith Orchestra: Cloud-Free Home Assistant Process Hijacker & Grandpa-Simple Agent Suite",
     )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    takeover_p = sub.add_parser(
+        "agent-takeover",
+        help="Run the interactive Orchestra Agent takeover (AirPlay PIN, Envoy serial, semantic naming, room assignment, dashboard)",
+    )
+    takeover_p.add_argument(
+        "--host",
+        type=str,
+        default="homeassistant.local",
+        help="Target Home Assistant host/IP (e.g. 192.168.0.44 or homeassistant.local; never 192.168.0.11)",
+    )
+    takeover_p.add_argument(
+        "--port",
+        type=int,
+        default=8123,
+        help="Target Home Assistant HTTP port (default 8123)",
+    )
+    takeover_p.add_argument(
+        "--token",
+        type=str,
+        default=None,
+        help="Orchestra-Agent Long-Lived Access Token (defaults to dist/orchestra_agent_token.txt)",
+    )
+    takeover_p.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        help="Seconds to wait for Home Assistant to boot before timeout",
+    )
+    takeover_p.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Run without interactive prompts (auto-confirm or skip prompts)",
+    )
 
     gp_p = sub.add_parser(
         "grandpa-setup",
@@ -193,7 +279,24 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("matrix", help="Print the supported first-pass zero-cloud hardware fingerprint matrix")
 
+    app_p = sub.add_parser("app", help="Launch the Orchestra Mobile App & Embedded Concierge local web server")
+    app_p.add_argument("--port", type=int, default=5000, help="Local HTTP port (default: 5000)")
+    app_p.add_argument("--host", type=str, default="0.0.0.0", help="Binding host (default: 0.0.0.0)")
+    app_p.add_argument("--target-ha", type=str, default=None, help="Home Assistant IP/hostname to connect to")
+
     args = parser.parse_args(argv)
+    if args.command == "app":
+        from orchestra.app.server import run_app_server
+        run_app_server(host=args.host, port=args.port, target_host=args.target_ha)
+        return 0
+    if args.command == "agent-takeover":
+        return _run_agent_takeover(
+            host=args.host,
+            port=args.port,
+            token=args.token,
+            timeout=args.timeout,
+            non_interactive=args.non_interactive,
+        )
     if args.command == "grandpa-setup":
         return asyncio.run(_run_grandpa_setup(args.config_dir))
     if args.command == "probe-istore":

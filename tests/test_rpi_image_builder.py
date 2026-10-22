@@ -31,21 +31,19 @@ class TestRPi3ImageBuilder(unittest.TestCase):
         self.tmp_dir.cleanup()
 
     def test_stage_payload_and_build_gpt_fat32_image(self) -> None:
-        # 1. Stage the pre-hijacked supervisor bundle
-        stage_info = stage_orchestra_supervisor_payload(self.build_dir, self.dist_dir)
+        # 1. Stage the clean pre-hijacked supervisor bundle (generic platform, no hardcoded devices)
+        stage_info = stage_orchestra_supervisor_payload(self.build_dir, self.dist_dir, clean_platform=True)
         preload_tar = Path(stage_info["preload_tar_path"])
         self.assertTrue(preload_tar.exists())
-        self.assertEqual(stage_info["devices_onboarded"], 23)
-        self.assertEqual(stage_info["circuits_identified"], 5)
+        self.assertEqual(stage_info["devices_onboarded"], 0)
 
-        # Verify archive contains homeassistant/.storage/onboarding, lovelace, energy, and addons/local/orchestra
+        # Verify archive contains homeassistant/.storage/onboarding, lovelace, and orchestra custom component
         with tarfile.open(preload_tar, "r:gz") as tar:
             names = set(tar.getnames())
             self.assertIn("homeassistant/.storage/onboarding", names)
             self.assertIn("homeassistant/.storage/lovelace", names)
-            self.assertIn("homeassistant/.storage/energy", names)
-            self.assertIn("homeassistant/.storage/conductor.entity_bindings", names)
             self.assertIn("homeassistant/custom_components/orchestra/manifest.json", names)
+            self.assertIn("homeassistant/custom_components/orchestra/flow_resolver.py", names)
             self.assertIn("addons/local/orchestra/config.yaml", names)
 
         # 2. Build the boot overlay and GPT disk image

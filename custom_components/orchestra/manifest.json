@@ -1,9 +1,9 @@
 {
   "domain": "orchestra",
-  "name": "Zenith Orchestra Cloud-Liberation & HA Process Hijacker",
-  "version": "0.1.0",
+  "name": "Zenith Orchestra WEM Energy & Conductor Integration",
+  "version": "0.2.0",
   "documentation": "https://zenith.energy/orchestra",
-  "dependencies": ["http"],
+  "dependencies": ["http", "webhook"],
   "after_dependencies": ["onboarding", "zeroconf", "ssdp", "dhcp", "usb", "bluetooth"],
   "codeowners": ["@zenith-energy"],
   "config_flow": true,

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0e2b33">
+  <title>Orchestra — Smart Home Concierge</title>
+  <link rel="icon" type="image/jpeg" href="/static/logo.jpeg">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+  <div class="app-container">
+    <!-- Top Nav Header -->
+    <header class="top-nav">
+      <div class="brand-wrapper">
+        <img src="/static/logo.jpeg" alt="Orchestra Logo" class="brand-logo">
+        <div>
+          <div class="brand-title">ORCHESTRA</div>
+          <div class="brand-subtitle">Energy Concierge</div>
+        </div>
+      </div>
+      <div class="node-status-pill" id="nodeStatusPill" title="Connected to Zenith Node (WA)">
+        <span class="pulse-dot"></span>
+        <span id="nodeStatusText">Connected</span>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Concierge Status Card -->
+      <section class="concierge-card" aria-label="Concierge Status">
+        <div class="concierge-avatar">⚡</div>
+        <div class="concierge-content">
+          <h3>Home Operating Autonomously</h3>
+          <p id="conciergeSummary">
+            Western Australia (Perth / SWIS) • Solar Soaking active. Hot water and battery are absorbing midday solar to minimize grid costs.
+          </p>
+        </div>
+      </section>
+
+      <!-- Live Home Energy Flow Card -->
+      <section class="energy-card" aria-label="Energy Flow">
+        <div class="card-header">
+          <div class="card-title">Live Power Flow</div>
+          <div class="savings-badge" id="savingsBadge">+$6.45 Saved Today</div>
+        </div>
+
+        <div class="power-grid-visual">
+          <div class="power-node solar-node">
+            <div class="node-header"><span>☀️</span> Solar Roof</div>
+            <div class="node-value" id="solarVal">4.2 <span style="font-size:14px">kW</span></div>
+            <div class="node-sub">Generating Free Power</div>
+          </div>
+
+          <div class="power-node battery-node">
+            <div class="node-header"><span>🔋</span> Home Battery</div>
+            <div class="node-value" id="batteryVal">85%</div>
+            <div class="node-sub">Charging (+1.5 kW)</div>
+          </div>
+
+          <div class="power-node home-node">
+            <div class="node-header"><span>🏠</span> Home Load</div>
+            <div class="node-value" id="homeVal">1.8 <span style="font-size:14px">kW</span></div>
+            <div class="node-sub">AC & Hot Water Running</div>
+          </div>
+
+          <div class="power-node grid-node">
+            <div class="node-header"><span>⚡</span> Street Grid</div>
+            <div class="node-value" id="gridVal">-0.9 <span style="font-size:14px">kW</span></div>
+            <div class="node-sub">Exporting Clean Energy</div>
+          </div>
+        </div>
+
+        <div class="tariff-banner">
+          <span>Current Electricity Tariff Mode:</span>
+          <span class="tariff-price" id="tariffText">Free Solar Soak (0.0¢)</span>
+        </div>
+      </section>
+
+      <!-- Quick Everyday Controls -->
+      <div class="section-title">Everyday Controls</div>
+      <section class="quick-actions-row">
+        <button class="action-btn" id="btnHotWaterBoost" onclick="boostHotWater()">
+          <span class="action-icon">🚿</span>
+          <span>Boost Water (1 Hr)</span>
+        </button>
+        <button class="action-btn" id="btnGuestMode" onclick="enableGuestMode()">
+          <span class="action-icon">☕</span>
+          <span>Guest Comfort</span>
+        </button>
+        <button class="action-btn" id="btnNightMode" onclick="enableNightMode()">
+          <span class="action-icon">🌙</span>
+          <span>Night Sleep</span>
+        </button>
+      </section>
+
+      <!-- Home Climate Dial Card -->
+      <section class="climate-box">
+        <div>
+          <div class="device-name">Main House Air Conditioner</div>
+          <div class="device-room">Living & Dining Areas</div>
+        </div>
+        <div class="temp-control">
+          <button class="temp-btn" onclick="adjustTemp(-0.5)" aria-label="Decrease Temperature">−</button>
+          <div class="temp-display" id="tempDisplay">24.0°</div>
+          <button class="temp-btn" onclick="adjustTemp(+0.5)" aria-label="Increase Temperature">+</button>
+        </div>
+      </section>
+
+      <!-- Room Devices List -->
+      <div class="section-title">Rooms & Appliances</div>
+      <section class="devices-list">
+        <div class="device-row">
+          <div class="device-info">
+            <div class="device-icon-box">📺</div>
+            <div>
+              <div class="device-name">Lounge Room Smart TV</div>
+              <div class="device-room">Living & Bedrooms</div>
+            </div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="tvSwitch" onchange="toggleDevice('tv', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="device-row">
+          <div class="device-info">
+            <div class="device-icon-box">💡</div>
+            <div>
+              <div class="device-name">Lounge Floor Lamp</div>
+              <div class="device-room">Living & Bedrooms</div>
+            </div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="lampSwitch" checked onchange="toggleDevice('lamp', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="device-row">
+          <div class="device-info">
+            <div class="device-icon-box">🚗</div>
+            <div>
+              <div class="device-name">Main Garage Roller Door</div>
+              <div class="device-room">Garage / Utility • Closed</div>
+            </div>
+          </div>
+          <button class="action-btn" style="padding: 6px 12px; font-size: 11px;" onclick="triggerGarage()">Toggle</button>
+        </div>
+
+        <div class="device-row">
+          <div class="device-info">
+            <div class="device-icon-box">🖨️</div>
+            <div>
+              <div class="device-name">Home Office Printer</div>
+              <div class="device-room">Study / Office • Ready</div>
+            </div>
+          </div>
+          <span style="font-size: 12px; color: var(--accent-cyan); font-weight: 600;">Connected</span>
+        </div>
+      </section>
+
+      <!-- Concierge Conversational Assistant -->
+      <div class="section-title">Ask Concierge</div>
+      <section class="chat-drawer">
+        <div class="chips-row">
+          <button class="chip" onclick="sendQuickPrompt('How much have I saved today?')">💰 How much saved?</button>
+          <button class="chip" onclick="sendQuickPrompt('I have guests coming over')">☕ Guests coming</button>
+          <button class="chip" onclick="sendQuickPrompt('Boost hot water for a shower')">🚿 Boost Hot Water</button>
+          <button class="chip" onclick="sendQuickPrompt('Turn off everything for the night')">🌙 Night Mode</button>
+        </div>
+
+        <div class="chat-messages" id="chatMessages">
+          <!-- Dynamically populated -->
+        </div>
+
+        <div class="chat-input-row">
+          <input type="text" id="chatInput" class="chat-input" placeholder="Ask your Concierge anything..." onkeydown="if(event.key==='Enter') sendChatMessage()">
+          <button class="chat-send-btn" onclick="sendChatMessage()" aria-label="Send Message">➤</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="bottom-nav">
+      <a href="#" class="nav-item active"><span class="nav-icon">🏠</span><span>Home</span></a>
+      <a href="#" class="nav-item" onclick="openSimulatedAirPlayModal()"><span class="nav-icon">📺</span><span>Pair TV</span></a>
+      <a href="#" class="nav-item" onclick="document.getElementById('chatInput').focus()"><span class="nav-icon">💬</span><span>Concierge</span></a>
+    </nav>
+
+    <!-- Modern HTML5 AirPlay PIN Pairing Modal -->
+    <dialog id="pinModal" closedby="any" aria-labelledby="pinModalTitle">
+      <div class="modal-header">
+        <div class="modal-icon">📺</div>
+        <h2 class="modal-title" id="pinModalTitle">Apple TV Discovered</h2>
+        <p class="modal-desc" id="pinModalDesc">
+          We found the Apple TV in your Living Room. Please enter the 4-digit AirPlay PIN showing on your TV screen:
+        </p>
+      </div>
+
+      <form method="dialog" id="pinForm" onsubmit="handlePinSubmit(event)">
+        <div class="pin-inputs">
+          <input type="text" inputmode="numeric" maxlength="1" class="pin-digit" id="pin1" autofocus onkeyup="movePinFocus(1, event)">
+          <input type="text" inputmode="numeric" maxlength="1" class="pin-digit" id="pin2" onkeyup="movePinFocus(2, event)">
+          <input type="text" inputmode="numeric" maxlength="1" class="pin-digit" id="pin3" onkeyup="movePinFocus(3, event)">
+          <input type="text" inputmode="numeric" maxlength="1" class="pin-digit" id="pin4" onkeyup="movePinFocus(4, event)">
+        </div>
+
+        <div class="modal-buttons">
+          <button type="button" class="btn-secondary" onclick="closePinModal()">Cancel</button>
+          <button type="submit" class="btn-primary" id="btnPairPin">Pair Apple TV</button>
+        </div>
+      </form>
+    </dialog>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
