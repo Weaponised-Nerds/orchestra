@@ -131,6 +131,8 @@ class OrchestraWEMWholesalePriceSensor(OrchestraBaseEntity, SensorEntity):
             "p50_aud_mwh": mkt.wholesale_price_aud_mwh,
             "p90_aud_mwh": mkt.price_p90_aud_mwh,
             "trading_interval_idx": mkt.trading_interval_idx,
+            "interval_time": mkt.interval_time_formatted,
+            "forecast_timestamp": mkt.forecast_timestamp,
             "source": mkt.source,
         }
 

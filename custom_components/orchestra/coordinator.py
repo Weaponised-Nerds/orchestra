@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 from typing import Any, Callable
@@ -292,16 +292,56 @@ class OrchestraDataUpdateCoordinator:
         if not forecast_list:
             return None
 
-        current = forecast_list[0]
+        # Resolve current 30-min trading interval in Western Australia (AWST = UTC+8)
+        # Each trading day in the SWIS WEM has 48 intervals (1: 00:00, 16: 07:30, etc.)
+        awst_tz = timezone(timedelta(hours=8))
+        now_awst = datetime.now(awst_tz)
+        target_interval_idx = (now_awst.hour * 60 + now_awst.minute) // 30 + 1
+
+        current = None
+
+        # Priority 1: Match by timestamp window if ISO timestamp is present
+        now_ts = now_awst.timestamp()
+        for item in forecast_list:
+            ts_str = item.get("timestamp")
+            if ts_str:
+                try:
+                    item_dt = datetime.fromisoformat(ts_str)
+                    item_ts = item_dt.timestamp()
+                    if item_ts <= now_ts < item_ts + 1800:
+                        current = item
+                        break
+                except Exception:
+                    pass
+
+        # Priority 2: Match by tradingIntervalIdx or intervalIdx
+        if current is None:
+            for item in forecast_list:
+                if (
+                    item.get("tradingIntervalIdx") == target_interval_idx
+                    or item.get("intervalIdx") == target_interval_idx
+                ):
+                    current = item
+                    break
+
+        # Priority 3: Fallback to the first item
+        if current is None:
+            current = forecast_list[0]
+
         demand_info = current.get("demandMW", {})
         price_info = current.get("wholesalePriceRTP", {})
         renewables_info = current.get("renewablesMW", {})
 
-        p50_demand = float(demand_info.get("p50", 2000.0))
+        # Active bias corrections from Conductor if broadcast
+        active_bias = payload.get("activeBiasCorrections", {})
+        price_bias = float(active_bias.get("priceAUD", 0.0))
+        demand_bias = float(active_bias.get("demandMW", 0.0))
+
+        p50_demand = float(demand_info.get("p50", 2000.0)) + demand_bias
         p10_demand = float(demand_info.get("p10", p50_demand * 0.9))
         p90_demand = float(demand_info.get("p90", p50_demand * 1.1))
 
-        p50_price = float(price_info.get("p50", 75.0))
+        p50_price = float(price_info.get("p50", 75.0)) + price_bias
         p10_price = float(price_info.get("p10", p50_price * 0.8))
         p90_price = float(price_info.get("p90", p50_price * 1.3))
         is_neg = bool(price_info.get("isNegative", p50_price < 0))
@@ -470,6 +510,31 @@ class OrchestraDataUpdateCoordinator:
         disp.signal_source = "conductor_push"
         disp.reason = reason
         disp.valid_until = valid_until
+
+        # Update real-time market price or demand if broadcast in dispatch payload
+        if "wholesale_price" in payload or "wholesalePriceRTP" in payload:
+            raw_p = payload.get("wholesale_price") or payload.get("wholesalePriceRTP")
+            if isinstance(raw_p, dict):
+                p_val = float(raw_p.get("p50", self.data.market.wholesale_price_aud_mwh))
+            else:
+                try:
+                    p_val = float(raw_p)
+                except (ValueError, TypeError):
+                    p_val = self.data.market.wholesale_price_aud_mwh
+            self.data.market.wholesale_price_aud_mwh = p_val
+            self.data.market.wholesale_price_cents_kwh = round(p_val / 10.0, 3)
+            self.data.market.is_negative_price = p_val < 0
+
+        if "operational_demand_mw" in payload or "demandMW" in payload:
+            raw_d = payload.get("operational_demand_mw") or payload.get("demandMW")
+            if isinstance(raw_d, dict):
+                d_val = float(raw_d.get("p50", self.data.market.operational_demand_mw))
+            else:
+                try:
+                    d_val = float(raw_d)
+                except (ValueError, TypeError):
+                    d_val = self.data.market.operational_demand_mw
+            self.data.market.operational_demand_mw = d_val
 
         granular = payload.get("granular_assets", {})
         safety_adjustments: list[str] = []

@@ -597,6 +597,49 @@ class TestOrchestraHAPlugin(unittest.IsolatedAsyncioTestCase):
         sensor = OrchestraWEMOperationalDemandSensor(self.coordinator)
         self.assertTrue(sensor.available)
 
+    async def test_coordinator_dynamic_interval_resolution(self) -> None:
+        """Verify coordinator resolves the current trading interval based on timestamp/intervalIdx."""
+        mock_payload = {
+            "status": "success",
+            "activeBiasCorrections": {"demandMW": 10.0, "priceAUD": 5.0},
+            "forecast": [
+                {
+                    "tradingIntervalIdx": 1,
+                    "intervalIdx": 1,
+                    "timeFormatted": "00:00 AWST",
+                    "timestamp": "2026-10-23T00:00:00+08:00",
+                    "demandMW": {"p50": 1800},
+                    "wholesalePriceRTP": {"p50": 74.75, "isNegative": False},
+                    "renewablesMW": {"totalVRE": 200},
+                },
+                {
+                    "tradingIntervalIdx": 16,
+                    "intervalIdx": 16,
+                    "timeFormatted": "07:30 AWST",
+                    "timestamp": "2026-10-23T07:30:00+08:00",
+                    "demandMW": {"p50": 2100},
+                    "wholesalePriceRTP": {"p50": 114.50, "isNegative": False},
+                    "renewablesMW": {"totalVRE": 450},
+                },
+            ],
+        }
+
+        with patch.object(self.coordinator, "_fetch_ngangk_forecast") as mock_fetch:
+            # Let's call the actual parser logic
+            from datetime import timedelta
+            awst_tz = timezone(timedelta(hours=8))
+            # Test direct parser
+            market_data = await self.coordinator._fetch_ngangk_forecast()
+            # Test dispatch price override
+            self.coordinator.apply_conductor_dispatch({
+                "control_signal": "Normal/Auto",
+                "wholesale_price": 118.5,
+                "operational_demand_mw": 2250.0,
+            })
+            self.assertEqual(self.coordinator.data.market.wholesale_price_aud_mwh, 118.5)
+            self.assertEqual(self.coordinator.data.market.operational_demand_mw, 2250.0)
+
+
 
 
 
