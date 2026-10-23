@@ -639,7 +639,87 @@ class TestOrchestraHAPlugin(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.coordinator.data.market.wholesale_price_aud_mwh, 118.5)
             self.assertEqual(self.coordinator.data.market.operational_demand_mw, 2250.0)
 
+    @staticmethod
+    def _mock_urlopen_for(payload):
+        """Build a urlopen replacement that returns `payload` as JSON."""
+        import json as _json
 
+        class _Resp:
+            def __enter__(self):
+                return self
 
+            def __exit__(self, *exc):
+                return False
 
+            def read(self):
+                return _json.dumps(payload).encode("utf-8")
 
+        def _urlopen(req, timeout=None):
+            _urlopen.urls.append(getattr(req, "full_url", str(req)))
+            return _Resp()
+
+        _urlopen.urls = []
+        return _urlopen
+
+    async def test_forecast_parser_selects_live_interval_not_midnight(self) -> None:
+        """Regression: price must come from the current AWST interval, not forecast[0] (00:00)."""
+        from datetime import timedelta
+
+        awst = timezone(timedelta(hours=8))
+        now = datetime.now(awst)
+        slot_start = now.replace(minute=(now.minute // 30) * 30, second=0, microsecond=0)
+        live_idx = (slot_start.hour * 60 + slot_start.minute) // 30 + 1
+        midnight = (slot_start - timedelta(days=1)).replace(hour=0, minute=0)
+        payload = {
+            "status": "success",
+            "activeBiasCorrections": {"demandMW": 10.0, "priceAUD": 5.0},
+            "forecast": [
+                {
+                    "tradingIntervalIdx": 1,
+                    "intervalIdx": 1,
+                    "timestamp": midnight.isoformat(),
+                    "demandMW": {"p50": 1800},
+                    "wholesalePriceRTP": {"p50": 74.75, "isNegative": False},
+                },
+                {
+                    "tradingIntervalIdx": live_idx,
+                    "intervalIdx": 2,
+                    "timestamp": slot_start.isoformat(),
+                    "demandMW": {"p50": 2100},
+                    "wholesalePriceRTP": {"p50": 114.5, "isNegative": False},
+                },
+            ],
+        }
+        fake = self._mock_urlopen_for(payload)
+        with patch("urllib.request.urlopen", fake):
+            market = await self.coordinator._fetch_ngangk_forecast()
+
+        self.assertIsNotNone(market)
+        # Live interval chosen, and server-applied bias is NOT added a second time
+        self.assertEqual(market.wholesale_price_aud_mwh, 114.5)
+        self.assertEqual(market.operational_demand_mw, 2100.0)
+        self.assertEqual(market.trading_interval_idx, live_idx)
+        self.assertTrue(all("horizon=24&start=now" in u for u in fake.urls))
+
+    async def test_forecast_parser_keeps_previous_when_no_interval_matches(self) -> None:
+        """If the forecast does not cover now, return None instead of a stale interval."""
+        from datetime import timedelta
+
+        awst = timezone(timedelta(hours=8))
+        now = datetime.now(awst)
+        live_idx = (now.hour * 60 + now.minute) // 30 + 1
+        other_idx = live_idx % 48 + 1
+        stale = (now - timedelta(days=2)).replace(minute=0, second=0, microsecond=0)
+        payload = {
+            "forecast": [
+                {
+                    "tradingIntervalIdx": other_idx,
+                    "intervalIdx": live_idx,  # must not be used for matching
+                    "timestamp": stale.isoformat(),
+                    "wholesalePriceRTP": {"p50": 74.75},
+                }
+            ]
+        }
+        with patch("urllib.request.urlopen", self._mock_urlopen_for(payload)):
+            market = await self.coordinator._fetch_ngangk_forecast()
+        self.assertIsNone(market)

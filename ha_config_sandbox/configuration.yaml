@@ -15,7 +15,7 @@ homeassistant:
 orchestra:
   cloud_liberation_mode: strict
   ocpp_port: 9000
-  ngangk_api_url: "https://ngangk.deeben.workers.dev"
+  ngangk_api_url: "https://ngangk.deeben.workers.dev/api/ngangk/forecast"
   hvac_min_dwell_seconds: 900
   hvac_max_setpoint_offset_c: 2.0
 

@@ -264,9 +264,10 @@ class OrchestraDataUpdateCoordinator:
         loop = asyncio.get_running_loop()
 
         def _sync_fetch() -> dict[str, Any]:
-            urls = [f"{self.ngangk_api_url}?horizon=1"]
+            query = "?horizon=24&start=now"
+            urls = [f"{self.ngangk_api_url}{query}"]
             if FALLBACK_NGANGK_API_URL and self.ngangk_api_url != FALLBACK_NGANGK_API_URL:
-                urls.append(f"{FALLBACK_NGANGK_API_URL}?horizon=1")
+                urls.append(f"{FALLBACK_NGANGK_API_URL}{query}")
 
             last_err = None
             for url in urls:
@@ -314,34 +315,38 @@ class OrchestraDataUpdateCoordinator:
                 except Exception:
                     pass
 
-        # Priority 2: Match by tradingIntervalIdx or intervalIdx
+        # Priority 2: Match by tradingIntervalIdx (AWST trading interval 1-48).
+        # intervalIdx is a position within the returned horizon, not a trading
+        # interval, so it is deliberately not used for matching.
         if current is None:
             for item in forecast_list:
-                if (
-                    item.get("tradingIntervalIdx") == target_interval_idx
-                    or item.get("intervalIdx") == target_interval_idx
-                ):
+                if item.get("tradingIntervalIdx") == target_interval_idx:
                     current = item
                     break
 
-        # Priority 3: Fallback to the first item
+        # No interval covers "now": keep the existing market state rather than
+        # silently presenting a stale interval (e.g. 00:00) as the live price.
         if current is None:
-            current = forecast_list[0]
+            _LOGGER.warning(
+                "Conductor forecast has no interval covering %s (trading interval %s); "
+                "keeping previous market data",
+                now_awst.isoformat(),
+                target_interval_idx,
+            )
+            return None
 
         demand_info = current.get("demandMW", {})
         price_info = current.get("wholesalePriceRTP", {})
         renewables_info = current.get("renewablesMW", {})
 
-        # Active bias corrections from Conductor if broadcast
-        active_bias = payload.get("activeBiasCorrections", {})
-        price_bias = float(active_bias.get("priceAUD", 0.0))
-        demand_bias = float(active_bias.get("demandMW", 0.0))
+        # Note: Conductor already applies activeBiasCorrections to the p50 values it
+        # returns; the field is informational only and must not be added again here.
 
-        p50_demand = float(demand_info.get("p50", 2000.0)) + demand_bias
+        p50_demand = float(demand_info.get("p50", 2000.0))
         p10_demand = float(demand_info.get("p10", p50_demand * 0.9))
         p90_demand = float(demand_info.get("p90", p50_demand * 1.1))
 
-        p50_price = float(price_info.get("p50", 75.0)) + price_bias
+        p50_price = float(price_info.get("p50", 75.0))
         p10_price = float(price_info.get("p10", p50_price * 0.8))
         p90_price = float(price_info.get("p90", p50_price * 1.3))
         is_neg = bool(price_info.get("isNegative", p50_price < 0))
