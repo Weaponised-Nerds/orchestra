@@ -14,6 +14,7 @@ CONF_HVAC_MIN_DWELL_SECONDS = "hvac_min_dwell_seconds"
 CONF_HVAC_MAX_SETPOINT_OFFSET_C = "hvac_max_setpoint_offset_c"
 CONF_HPWH_MIN_TEMP_C = "hpwh_min_temp_c"
 CONF_HPWH_MAX_TEMP_C = "hpwh_max_temp_c"
+CONF_ASSET_CLASSES = "asset_classes"
 
 DEFAULT_NGANGK_API_URL = "https://conductor.deezlepower.com/api/conductor/forecast"
 FALLBACK_NGANGK_API_URL = "https://ngangk.deeben.workers.dev/api/ngangk/forecast"
@@ -43,6 +44,7 @@ ASSET_EV = "ev"
 ASSET_HEAT_PUMP = "heat_pump"
 ASSET_HVAC = "hvac"
 ASSET_HOME_BATTERY = "home_battery"
+DEFAULT_ASSET_CLASSES = (ASSET_EV, ASSET_HEAT_PUMP, ASSET_HVAC, ASSET_HOME_BATTERY)
 
 ACTION_EV_CHARGE_NOW = "CHARGE_NOW"
 ACTION_EV_PAUSE_OR_MIN_6A = "PAUSE_OR_MIN_6A"
