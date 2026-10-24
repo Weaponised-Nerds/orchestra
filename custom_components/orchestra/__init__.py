@@ -23,6 +23,7 @@ from typing import Any
 try:
     from .conductor_subscriber import ConductorSubscriber
     from .const import (
+        CONF_ASSET_CLASSES,
         CONF_CONDUCTOR_API_KEY,
         CONF_CONDUCTOR_WEBHOOK_ID,
         CONF_CONDUCTOR_WS_URL,
@@ -51,6 +52,7 @@ try:
 except ImportError:
     from custom_components.orchestra.conductor_subscriber import ConductorSubscriber
     from custom_components.orchestra.const import (
+        CONF_ASSET_CLASSES,
         CONF_CONDUCTOR_API_KEY,
         CONF_CONDUCTOR_WEBHOOK_ID,
         CONF_CONDUCTOR_WS_URL,
@@ -152,6 +154,7 @@ async def async_setup(hass: Any, config: dict[str, Any]) -> bool:
         webhook_id=conductor_wh,
         api_key=conductor_api_key,
         node_id=node_id,
+        asset_classes=domain_cfg.get(CONF_ASSET_CLASSES),
     )
 
     hass.data.setdefault(DOMAIN, {})
@@ -229,6 +232,7 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
             webhook_id=entry_data.get(CONF_CONDUCTOR_WEBHOOK_ID, DEFAULT_CONDUCTOR_WEBHOOK_ID),
             api_key=entry_data.get(CONF_CONDUCTOR_API_KEY),
             node_id=entry_data.get(CONF_NODE_ID, DEFAULT_NODE_ID),
+            asset_classes=entry_data.get(CONF_ASSET_CLASSES),
         )
 
         hass.data[DOMAIN]["safety_guard"] = safety_guard

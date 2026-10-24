@@ -723,3 +723,77 @@ class TestOrchestraHAPlugin(unittest.IsolatedAsyncioTestCase):
         with patch("urllib.request.urlopen", self._mock_urlopen_for(payload)):
             market = await self.coordinator._fetch_ngangk_forecast()
         self.assertIsNone(market)
+
+    async def test_tranche_targeting_by_cohort(self) -> None:
+        """A directive's cohort range applies it only to homes inside [from, to); others run normal."""
+        subscriber = ConductorSubscriber(hass=self.hass, coordinator=self.coordinator)
+        frame = {
+            "dispatch_id": "vpp_manual_tranche_1",
+            "control_signal": "Load Shed",
+            "source": "manual",
+            "granular_assets": {
+                "ev": {"enabled": False, "action": "Load Shed - Charging Paused", "target_amps": 0,
+                       "cohort": {"from": 0, "to": 25}},
+                "hvac": {"enabled": True, "action": "SHED_OFFSET", "mode": "auto", "setpoint_offset_c": 1.5},
+            },
+        }
+
+        self.coordinator.cohort = 10
+        subscriber.process_inbound_dispatch(frame)
+        disp = self.coordinator.data.dispatch
+        self.assertEqual(disp.ev_target_amps, 0)
+        self.assertEqual(disp.ev_action, "Load Shed - Charging Paused")
+        self.assertEqual(disp.excluded_assets, [])
+        self.assertEqual(disp.ac_dispatch_mode, "shed")
+
+        self.coordinator.cohort = 25
+        subscriber.process_inbound_dispatch(frame)
+        disp = self.coordinator.data.dispatch
+        self.assertEqual(disp.excluded_assets, ["ev"])
+        self.assertEqual(disp.ev_action, "NORMAL")
+        self.assertEqual(disp.ev_target_amps, 16)
+        self.assertFalse(disp.ev_charge_now)
+        # Untargeted directives still reach everyone
+        self.assertEqual(disp.ac_dispatch_mode, "shed")
+
+        # A home with no cohort stays out of every tranche
+        self.coordinator.cohort = None
+        subscriber.process_inbound_dispatch(frame)
+        self.assertEqual(self.coordinator.data.dispatch.excluded_assets, ["ev"])
+
+    async def test_conductor_normal_frame_does_not_trigger_charge_or_boost(self) -> None:
+        """Conductor's Normal/Auto frame sets enabled=True with action NORMAL; that is not charge/boost now."""
+        subscriber = ConductorSubscriber(hass=self.hass, coordinator=self.coordinator)
+        subscriber.process_inbound_dispatch({
+            "dispatch_id": "swis_normal_20261024_031",
+            "control_signal": "Normal/Auto",
+            "granular_assets": {
+                "ev": {"enabled": True, "action": "NORMAL", "target_amps": 16},
+                "heat_pump": {"enabled": True, "run_now": False, "action": "NORMAL", "target_temp_c": 60.0},
+                "hvac": {"enabled": True, "action": "NORMAL", "mode": "auto", "setpoint_offset_c": 0.0},
+            },
+        })
+        disp = self.coordinator.data.dispatch
+        self.assertFalse(disp.ev_charge_now)
+        self.assertEqual(disp.ev_target_amps, 16)
+        self.assertEqual(disp.ev_action, "NORMAL")
+        self.assertFalse(disp.heat_pump_run_now)
+        self.assertEqual(disp.ac_dispatch_mode, "idle")
+
+    async def test_subscribe_ack_is_not_applied_as_dispatch(self) -> None:
+        """Conductor's {"status": "subscribed"} ack must not overwrite the dispatch state."""
+        subscriber = ConductorSubscriber(hass=self.hass, coordinator=self.coordinator)
+        subscriber.process_inbound_dispatch({"dispatch_id": "d1", "control_signal": "Energy Soak"})
+        ack = subscriber.process_inbound_dispatch({"status": "subscribed", "channel": "swis_market_broadcast"})
+        self.assertEqual(ack["status"], "ignored")
+        self.assertEqual(self.coordinator.data.dispatch.control_signal, SIGNAL_ENERGY_SOAK)
+        self.assertEqual(self.coordinator.data.dispatch.dispatch_id, "d1")
+
+    async def test_cohort_is_stable_and_declared_on_subscribe(self) -> None:
+        """The anonymous cohort is deterministic per seed and sent with the subscribe frame."""
+        sub_a = ConductorSubscriber(hass=self.hass, coordinator=self.coordinator, node_id="node_a",
+                                    asset_classes=["ev", "hvac", "bogus"])
+        cohort = await sub_a._resolve_cohort()
+        self.assertTrue(0 <= cohort <= 99)
+        self.assertEqual(cohort, await sub_a._resolve_cohort())
+        self.assertEqual(sub_a.asset_classes, ["ev", "hvac"])

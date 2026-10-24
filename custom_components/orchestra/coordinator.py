@@ -143,6 +143,9 @@ class OrchestraDispatchState:
     counterfactual_shed_kw: float = 0.0
     accumulated_dividend_aud: float = 0.0
 
+    # Tranche targeting: asset classes whose directive cohort range excluded this home
+    excluded_assets: list[str] = field(default_factory=list)
+
 
 @dataclass
 class OrchestraCoordinatorData:
@@ -177,6 +180,8 @@ class OrchestraDataUpdateCoordinator:
         )
 
         self.data = OrchestraCoordinatorData()
+        # Anonymous 0-99 cohort used to decide which tranche directives apply to this home
+        self.cohort: int | None = None
         self.last_update_success: bool = True
         self.last_exception: Exception | None = None
         self.name: str = "orchestra"
@@ -544,17 +549,34 @@ class OrchestraDataUpdateCoordinator:
         granular = payload.get("granular_assets", {})
         safety_adjustments: list[str] = []
 
+        # Tranche targeting: a directive with `cohort: {from, to}` only applies to homes
+        # whose anonymous cohort falls in [from, to); the rest run their normal schedule.
+        excluded: list[str] = []
+        for asset in (ASSET_EV, ASSET_HEAT_PUMP, ASSET_HVAC, ASSET_HOME_BATTERY):
+            if granular.get(asset) and not self._cohort_targeted(granular[asset].get("cohort")):
+                excluded.append(asset)
+                self._apply_asset_normal(asset, "Not in this tranche; standard schedule")
+        disp.excluded_assets = excluded
+        granular = {k: v for k, v in granular.items() if k not in excluded}
+
         # 1. Granular EV directive
         ev_dir = granular.get(ASSET_EV, {})
         if ev_dir:
-            ev_action = ev_dir.get("action", "")
-            ev_enabled = bool(ev_dir.get("enabled", False) or ev_dir.get("charge_now", False))
+            ev_action = str(ev_dir.get("action", ""))
             target_amps = int(ev_dir.get("target_amps", 16))
+            paused = target_amps == 0 or "PAUSE" in ev_action.upper() or "LOAD SHED" in ev_action.upper()
+            # Without an action, `enabled` alone means charge now (pre-v1.2 frames)
+            charge_now = not paused and bool(
+                ev_dir.get("charge_now", False)
+                or ev_action.upper() == ACTION_EV_CHARGE_NOW
+                or (not ev_action and ev_dir.get("enabled", False))
+            )
+            if not ev_action and not ev_dir.get("enabled", True):
+                paused, charge_now = True, False
 
             # Item 3.2: target_amps == 0 or load shed pause indicates pilot pause (IEC 61851 0A)
-            if target_amps == 0 or not ev_enabled or "PAUSE" in ev_action.upper() or "LOAD SHED" in ev_action.upper():
+            if paused:
                 target_amps = 0
-                ev_enabled = False
                 ev_action_resolved = (
                     ACTION_EV_LOAD_SHED_PAUSED if ("LOAD SHED" in ev_action.upper() or control_signal == SIGNAL_LOAD_SHED)
                     else "PAUSE"
@@ -566,9 +588,9 @@ class OrchestraDataUpdateCoordinator:
                 elif target_amps > 32:
                     target_amps = 32
                     safety_adjustments.append("ev_pilot_clamped_to_32a_maximum")
-                ev_action_resolved = ev_action if ev_action else ACTION_EV_CHARGE_NOW
+                ev_action_resolved = ev_action or (ACTION_EV_CHARGE_NOW if charge_now else "NORMAL")
 
-            disp.ev_charge_now = ev_enabled
+            disp.ev_charge_now = charge_now
             disp.ev_target_amps = target_amps
             disp.ev_action = ev_action_resolved
             disp.ev_reason = ev_dir.get("reason", reason)
@@ -576,7 +598,12 @@ class OrchestraDataUpdateCoordinator:
         # 2. Granular Heat Pump Water Heater directive
         hp_dir = granular.get(ASSET_HEAT_PUMP, {})
         if hp_dir:
-            hp_enabled = bool(hp_dir.get("enabled", False) or hp_dir.get("run_now", False))
+            hp_action = str(hp_dir.get("action", "")).upper()
+            hp_enabled = bool(
+                hp_dir.get("run_now", False)
+                or hp_action in (ACTION_HPWH_RUN_NOW, "THERMAL_BOOST_65C")
+                or (not hp_action and hp_dir.get("enabled", False))
+            )
             requested_temp = float(hp_dir.get("target_temp_c", 65.0))
             # Enforce safety guardrail [50.0, 65.0]
             clamped_temp = max(
@@ -600,7 +627,7 @@ class OrchestraDataUpdateCoordinator:
             mode = str(hvac_dir.get("mode", "")).lower()
             precool = bool(hvac_dir.get("precool", False) or "PRE_COOL" in hvac_action or mode == "cool")
             preheat = bool(hvac_dir.get("preheat", False) or "PRE_HEAT" in hvac_action or mode == "heat")
-            is_shed = "SHED" in hvac_action or control_signal == SIGNAL_LOAD_SHED
+            is_shed = "SHED" in hvac_action or (not hvac_action and control_signal == SIGNAL_LOAD_SHED)
 
             offset = float(hvac_dir.get("setpoint_offset_c", -1.5 if precool else (1.5 if (preheat or is_shed) else 0.0)))
 
@@ -665,6 +692,46 @@ class OrchestraDataUpdateCoordinator:
             "safety_adjustments": safety_adjustments,
             "applied_at": datetime.now(timezone.utc).isoformat(),
         }
+
+    def _cohort_targeted(self, cohort: Any) -> bool:
+        """True when this home's cohort falls inside a directive's [from, to) range."""
+        if not cohort:
+            return True
+        if self.cohort is None:
+            # Without a cohort we cannot place ourselves in a tranche; stay out of it.
+            return False
+        try:
+            lo, hi = float(cohort.get("from", 0)), float(cohort.get("to", 100))
+        except (AttributeError, TypeError, ValueError):
+            return True
+        return lo <= self.cohort < hi
+
+    def _apply_asset_normal(self, asset: str, reason: str) -> None:
+        """Return one asset class to its standard local schedule."""
+        disp = self.data.dispatch
+        if asset == ASSET_EV:
+            disp.ev_charge_now = False
+            disp.ev_target_amps = 16
+            disp.ev_action = "NORMAL"
+            disp.ev_reason = reason
+        elif asset == ASSET_HEAT_PUMP:
+            disp.heat_pump_run_now = False
+            disp.heat_pump_target_temp_c = 60.0
+            disp.heat_pump_action = "NORMAL"
+            disp.heat_pump_reason = reason
+        elif asset == ASSET_HVAC:
+            disp.ac_precool = False
+            disp.ac_preheat = False
+            disp.ac_setpoint_offset_c = 0.0
+            disp.ac_dispatch_mode = "idle"
+            disp.ac_mode = "auto"
+            disp.ac_reason = reason
+        elif asset == ASSET_HOME_BATTERY:
+            disp.home_battery_storm_watch = False
+            disp.battery_min_reserve_soc_pct = 20.0
+            disp.battery_charge_from_grid = False
+            disp.battery_action = "SELF_CONSUME"
+            disp.battery_reason = reason
 
     def apply_wan_fallback_normal(self, reason: str = "WAN connection offline. Reverted to standard schedule.") -> None:
         """

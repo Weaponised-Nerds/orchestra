@@ -207,6 +207,8 @@ class OrchestraConductorControlSignalSensor(OrchestraBaseEntity, SensorEntity):
             "ac_precool": disp.ac_precool,
             "ac_preheat": disp.ac_preheat,
             "home_battery_storm_watch": disp.home_battery_storm_watch,
+            "cohort": self.coordinator.cohort,
+            "excluded_assets": list(disp.excluded_assets),
         }
 
 

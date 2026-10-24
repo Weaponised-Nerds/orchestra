@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+import hashlib
 import json
 import logging
 from typing import Any
 
 try:
     from .const import (
+        DEFAULT_ASSET_CLASSES,
         DEFAULT_CONDUCTOR_WEBHOOK_ID,
         DEFAULT_CONDUCTOR_WS_URL,
         DOMAIN,
@@ -25,6 +27,7 @@ try:
     from .coordinator import OrchestraDataUpdateCoordinator
 except ImportError:
     from custom_components.orchestra.const import (
+        DEFAULT_ASSET_CLASSES,
         DEFAULT_CONDUCTOR_WEBHOOK_ID,
         DEFAULT_CONDUCTOR_WS_URL,
         DOMAIN,
@@ -49,6 +52,7 @@ class ConductorSubscriber:
         webhook_id: str = DEFAULT_CONDUCTOR_WEBHOOK_ID,
         api_key: str | None = None,
         node_id: str = "anonymous_subscriber",
+        asset_classes: list[str] | tuple[str, ...] | None = None,
     ) -> None:
         self.hass = hass
         self.coordinator = coordinator
@@ -56,6 +60,7 @@ class ConductorSubscriber:
         self.webhook_id = webhook_id
         self.api_key = api_key
         self.node_id = node_id
+        self.asset_classes = [a for a in (asset_classes or DEFAULT_ASSET_CLASSES) if a in DEFAULT_ASSET_CLASSES]
 
         self._ws_task: asyncio.Task | None = None
         self._is_stopped = False
@@ -65,6 +70,8 @@ class ConductorSubscriber:
     async def async_start(self) -> None:
         """Start the WebSocket broadcast listener loop and register local webhook handler."""
         self._is_stopped = False
+        if self.coordinator.cohort is None:
+            self.coordinator.cohort = await self._resolve_cohort()
         self._register_webhook_if_available()
 
         if self.ws_url and self._ws_task is None:
@@ -81,6 +88,23 @@ class ConductorSubscriber:
             except asyncio.CancelledError:
                 pass
             self._ws_task = None
+
+    async def _resolve_cohort(self) -> int:
+        """
+        Stable anonymous cohort 0-99, derived from the HA installation id (or the node id).
+        Conductor targets tranches by cohort range and never learns which home is which.
+        """
+        seed: str | None = None
+        try:
+            from homeassistant.helpers import instance_id
+
+            seed = await instance_id.async_get(self.hass)
+        except Exception:  # noqa: BLE001 - outside HA or instance id unavailable
+            seed = None
+        if not seed:
+            seed = self.node_id
+        digest = hashlib.sha256(f"orchestra-cohort:{seed}".encode("utf-8")).hexdigest()
+        return int(digest, 16) % 100
 
     def _register_webhook_if_available(self) -> None:
         """Register HA Webhook endpoint `/api/webhook/<webhook_id>`."""
@@ -135,6 +159,10 @@ class ConductorSubscriber:
         Validates and applies an inbound Conductor broadcast message.
         Enforces privacy: no private home energy usage or PII is returned.
         """
+        # Acks, pongs and other control frames carry no dispatch
+        if "control_signal" not in payload:
+            return {"status": "ignored", "reason": "not_a_dispatch"}
+
         # Validate optional API key if configured
         if self.api_key:
             auth_header = payload.get("auth_token") or payload.get("api_key")
@@ -185,9 +213,12 @@ class ConductorSubscriber:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
+        # Anonymous capability declaration: lets Conductor size a tranche, nothing more
         sub_frame = json.dumps({
             "action": "subscribe",
             "channel": "swis_market_broadcast",
+            "assets": self.asset_classes,
+            "cohort": self.coordinator.cohort,
         })
 
         # 1. Primary: Try Home Assistant native aiohttp client
