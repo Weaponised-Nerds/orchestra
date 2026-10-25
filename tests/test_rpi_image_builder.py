@@ -7,10 +7,14 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+import zipfile
+import json
 
 from haos_image.build_rpi_image import (
+    MTOOLS_DIR,
     _build_gpt_disk_with_fat32_boot,
     parse_gpt_partitions,
+    parse_user_spec,
     stage_boot_and_config_overlay,
     stage_orchestra_supervisor_payload,
 )
@@ -30,21 +34,55 @@ class TestRPi3ImageBuilder(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp_dir.cleanup()
 
+    def _fake_hacs_zip(self) -> Path:
+        path = self.work_dir / "hacs.zip"
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr("manifest.json", json.dumps({"domain": "hacs", "version": "2.0.5"}))
+            zf.writestr("__init__.py", "")
+        return path
+
+    def test_parse_user_spec(self) -> None:
+        self.assertEqual(
+            parse_user_spec("Dee Ben:Dee:hunter22"),
+            {"name": "Dee Ben", "username": "dee", "password": "hunter22", "admin": True},
+        )
+        generated = parse_user_spec("Sam:sam")
+        self.assertGreaterEqual(len(generated["password"]), 16)
+        with self.assertRaises(ValueError):
+            parse_user_spec("nobody")
+
     def test_stage_payload_and_build_gpt_fat32_image(self) -> None:
-        # 1. Stage the clean pre-hijacked supervisor bundle (generic platform, no hardcoded devices)
-        stage_info = stage_orchestra_supervisor_payload(self.build_dir, self.dist_dir, clean_platform=True)
+        # 1. Stage onboarding, Orchestra, HACS and the setup plan; nothing about the home
+        users = [parse_user_spec("Dee Ben:dee:hunter22")]
+        stage_info = stage_orchestra_supervisor_payload(
+            self.build_dir, self.dist_dir, users=users, hacs_zip=self._fake_hacs_zip()
+        )
         preload_tar = Path(stage_info["preload_tar_path"])
         self.assertTrue(preload_tar.exists())
-        self.assertEqual(stage_info["devices_onboarded"], 0)
+        self.assertEqual(stage_info["hacs_version"], "2.0.5")
+        self.assertEqual(stage_info["users"], ["dee"])
 
-        # Verify archive contains homeassistant/.storage/onboarding, lovelace, and orchestra custom component
         with tarfile.open(preload_tar, "r:gz") as tar:
             names = set(tar.getnames())
             self.assertIn("homeassistant/.storage/onboarding", names)
-            self.assertIn("homeassistant/.storage/lovelace", names)
-            self.assertIn("homeassistant/custom_components/orchestra/manifest.json", names)
-            self.assertIn("homeassistant/custom_components/orchestra/flow_resolver.py", names)
-            self.assertIn("addons/local/orchestra/config.yaml", names)
+            self.assertIn("homeassistant/.storage/auth", names)
+            self.assertIn("homeassistant/.storage/orchestra.setup_plan", names)
+            self.assertIn("homeassistant/custom_components/orchestra/setup_agent.py", names)
+            self.assertIn("homeassistant/custom_components/hacs/manifest.json", names)
+            # Dropped: the DNS sinkhole, the add-on, a fixed dashboard and pre-filled registries
+            self.assertFalse(any(n.startswith(("dns", "addons")) for n in names))
+            self.assertNotIn("homeassistant/.storage/lovelace", names)
+            self.assertNotIn("homeassistant/.storage/core.config_entries", names)
+            self.assertFalse(any("__pycache__" in n for n in names))
+            config_yaml = tar.extractfile("homeassistant/configuration.yaml").read().decode()
+            self.assertIn("default_config:", config_yaml)
+            self.assertIn("\norchestra:", config_yaml)
+            plan = json.loads(tar.extractfile("homeassistant/.storage/orchestra.setup_plan").read())
+            self.assertEqual(plan["key"], "orchestra.setup_plan")
+            self.assertEqual(plan["data"]["users"][0]["username"], "dee")
+
+        handover = Path(stage_info["handover_path"]).read_text()
+        self.assertIn("username dee, password hunter22", handover)
 
         # 2. Build the boot overlay and GPT disk image
         boot_overlay = stage_boot_and_config_overlay(
@@ -66,7 +104,7 @@ class TestRPi3ImageBuilder(unittest.TestCase):
         # 4. Verify FAT32 files in Partition 1 (`hassos-boot`) using `mdir`
         boot_offset = partitions[0]["offset_bytes"]
         mdir_out = subprocess.run(
-            ["/opt/homebrew/bin/mdir", "-i", f"{img_path}@@{boot_offset}", "::"],
+            [str(MTOOLS_DIR / "mdir"), "-i", f"{img_path}@@{boot_offset}", "::"],
             check=True,
             capture_output=True,
             text=True,

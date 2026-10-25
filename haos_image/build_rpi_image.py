@@ -4,20 +4,18 @@ Home Assistant OS (HAOS) Raspberry Pi 5 (`rpi5-64`) & Pi 3/4 Image Builder & Rep
 Builds a flashable Raspberry Pi 5 image (`.img.xz` & `.img`) pre-loaded with:
 1. Home Assistant OS (`rpi5-64` architecture for BCM2712 + RP1 Southbridge, with PCIe NVMe,
    RP1 UART0, and I2C enabled).
-2. Pre-hijacked `.storage/` registries (`onboarding`, `auth`, `core.config`, `core.config_entries`,
-   `core.device_registry`, `core.area_registry`, `core.entity_registry`).
-3. Pre-bound Conductor Demand Response plugin (`.storage/conductor.entity_bindings`) with
-   active load-step-verified switchboard circuit names.
-4. Custom Grandpa-Simple Lovelace & Energy Dashboards (`.storage/lovelace`, `.storage/energy`).
-5. In-process `custom_components/orchestra` + all 23 zero-cloud hardware adapters (including
-   the iStore 180L/270L Heat Pump Wi-Fi & Modbus prober).
-6. Local HAOS Supervisor Add-on (`/mnt/data/supervisor/addons/local/orchestra`).
+2. Onboarding already finished: the Orchestra-Agent owner account and its long-lived token,
+   Perth location, AUD and metric units (`.storage/onboarding`, `auth`, `core.config`).
+3. `configuration.yaml` with `default_config:`, so Home Assistant's own discovery runs.
+4. The Orchestra integration and HACS in `custom_components/`.
+5. A setup plan (`.storage/orchestra.setup_plan`) holding the human logins. The Orchestra
+   setup agent reads it on first boot, finishes setup after discovery, creates the logins,
+   rotates the agent's password and leaves a punch list for what needs a person.
 """
 
 from __future__ import annotations
 
 import argparse
-import asyncio
 import binascii
 import hashlib
 import json
@@ -29,15 +27,16 @@ import sys
 import tarfile
 from typing import Any
 import urllib.request
+import secrets
 import uuid
+import zipfile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from orchestra.agent.framework import GrandpaCommissioningAgent
 from orchestra.config import OrchestraConfig
-from orchestra.orchestrator import OrchestraEngine
+from orchestra.hijacker.bootstrap import HAProcessHijacker
 
 OFFICIAL_HAOS_VERSION = "18.3"
 
@@ -56,8 +55,16 @@ BOARD_RELEASE_URLS: dict[str, str] = {
     ),
 }
 
+HACS_RELEASE_URL = "https://github.com/hacs/integration/releases/{path}/hacs.zip"
+SETUP_PLAN_KEY = "orchestra.setup_plan"
+
+# Homebrew paths on the Mac, else whatever is on PATH (Linux, CI)
 MTOOLS_DIR = Path("/opt/homebrew/bin")
+if not (MTOOLS_DIR / "mformat").exists() and shutil.which("mformat"):
+    MTOOLS_DIR = Path(shutil.which("mformat")).parent  # type: ignore[arg-type]
 XZ_BIN = Path("/opt/homebrew/bin/xz")
+if not XZ_BIN.exists() and shutil.which("xz"):
+    XZ_BIN = Path(shutil.which("xz"))  # type: ignore[arg-type]
 DEBUGFS_BIN = Path("/opt/homebrew/opt/e2fsprogs/sbin/debugfs")
 if not DEBUGFS_BIN.exists():
     sh_debugfs = shutil.which("debugfs")
@@ -65,142 +72,99 @@ if not DEBUGFS_BIN.exists():
         DEBUGFS_BIN = Path(sh_debugfs)
 
 
+def parse_user_spec(spec: str) -> dict[str, Any]:
+    """`"Full Name:username[:password]"` → a setup plan user. A missing password is generated."""
+    parts = spec.split(":", 2)
+    if len(parts) < 2 or not parts[0].strip() or not parts[1].strip():
+        raise ValueError(f"--user needs 'Full Name:username[:password]', got {spec!r}")
+    password = parts[2] if len(parts) == 3 and parts[2] else secrets.token_urlsafe(12)
+    return {"name": parts[0].strip(), "username": parts[1].strip().lower(), "password": password, "admin": True}
+
+
+def stage_hacs(target_dir: Path, build_dir: Path, hacs_zip: Path | None = None, version: str = "latest") -> str:
+    """Unpack HACS into `custom_components/hacs`, downloading its release zip unless one is given."""
+    if hacs_zip is None:
+        hacs_zip = build_dir / f"hacs-{version}.zip"
+        if not hacs_zip.exists():
+            path = "latest/download" if version == "latest" else f"download/{version}"
+            url = HACS_RELEASE_URL.format(path=path)
+            print(f"[HAOS Builder] Downloading HACS from {url}...")
+            urllib.request.urlretrieve(url, hacs_zip)
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    target_dir.mkdir(parents=True)
+    with zipfile.ZipFile(hacs_zip) as zf:
+        for member in zf.namelist():
+            if member.startswith("/") or ".." in Path(member).parts:
+                raise ValueError(f"Unsafe path in HACS zip: {member}")
+        zf.extractall(target_dir)
+    manifest = json.loads((target_dir / "manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("domain") != "hacs":
+        raise ValueError(f"{hacs_zip} is not a HACS release")
+    return str(manifest.get("version", version))
+
+
 def stage_orchestra_supervisor_payload(
     build_dir: Path,
     dist_dir: Path,
-    clean_platform: bool = True,
+    users: list[dict[str, Any]] | None = None,
+    include_hacs: bool = True,
+    hacs_zip: Path | None = None,
+    hacs_version: str = "latest",
 ) -> dict[str, Any]:
     """
-    Stage the Orchestra supervisor payload into `/mnt/data/supervisor` tree and pack it.
-    If `clean_platform` is True (default for production images), bypasses onboarding and
-    seeds generic system auth + clean overview dashboard WITHOUT hardcoding any specific
-    home hardware (which is discovered dynamically by the in-process hijacker).
+    Stage the `/mnt/data/supervisor` tree and pack it as `dist/orchestra-preload.tar.gz`.
+
+    Onboarding is finished for the Orchestra-Agent account, but nothing about the home is
+    pre-filled: Home Assistant discovers the equipment itself on first boot and the setup
+    agent in the Orchestra integration finishes from there.
     """
     staging_supervisor = build_dir / "staging_supervisor"
     if staging_supervisor.exists():
         shutil.rmtree(staging_supervisor)
 
     ha_config_dir = staging_supervisor / "homeassistant"
-    addon_target_dir = staging_supervisor / "addons" / "local" / "orchestra"
-    dns_target_dir = staging_supervisor / "dns"
-
     ha_config_dir.mkdir(parents=True, exist_ok=True)
-    addon_target_dir.mkdir(parents=True, exist_ok=True)
-    dns_target_dir.mkdir(parents=True, exist_ok=True)
 
-    cfg = OrchestraConfig(ha_config_dir=ha_config_dir)
-    engine = OrchestraEngine(cfg)
+    # 1. Onboarding done, agent owner + long-lived token, Perth/AUD/metric, configuration.yaml
+    HAProcessHijacker(OrchestraConfig(ha_config_dir=ha_config_dir)).bypass_onboarding()
 
-    if clean_platform:
-        # Generic zero-touch bootstrap: NO hardcoded equipment!
-        # 1. Bypass onboarding, seed auth, core.config, core.analytics
-        engine.process_hijacker.bypass_onboarding()
-        engine.storage_injector.initialize_registries()
-
-        # 2. Pre-seed clean default Grandpa Overview dashboard in .storage/lovelace
-        default_dashboard = {
-            "version": 1,
-            "minor_version": 1,
-            "key": "lovelace",
-            "data": {
-                "config": {
-                    "title": "My Home",
-                    "views": [
-                        {
-                            "title": "My Home",
-                            "path": "default_view",
-                            "icon": "mdi:home-heart",
-                            "badges": [],
-                            "cards": [
-                                {
-                                    "type": "markdown",
-                                    "title": "Welcome Home — Orchestra Energy Concierge Active",
-                                    "content": (
-                                        "**Everything is running smoothly and automatically.**\n"
-                                        "- Household comfort and energy efficiency are actively managed.\n"
-                                        "- Discovered devices will appear here automatically without diagnostic clutter."
-                                    ),
-                                }
-                            ],
-                        },
-                        {
-                            "title": "Energy & Savings",
-                            "path": "energy-and-savings",
-                            "icon": "mdi:cash-multiple",
-                            "badges": [],
-                            "cards": [
-                                {
-                                    "type": "energy-distribution",
-                                    "title": "Live Home Power Flow (Solar, Battery, Home & Street Grid)",
-                                    "link_dashboard": True,
-                                },
-                            ],
-                        },
-                    ],
-                }
-            },
-        }
-        (ha_config_dir / ".storage" / "lovelace").write_text(json.dumps(default_dashboard, indent=2), encoding="utf-8")
-
-        automations_path = ha_config_dir / "automations.yaml"
-        if not automations_path.exists():
-            automations_path.write_text("[]\n", encoding="utf-8")
-
-        dnsmasq_file = ha_config_dir / "orchestra_dnsmasq_liberation.conf"
-        if not dnsmasq_file.exists():
-            dnsmasq_file.write_text(engine.cloud_blocker.render_dnsmasq_conf(), encoding="utf-8")
-
-        devices_onboarded = 0
-        visible_entities = 0
-        circuits_identified = 0
-    else:
-        agent = GrandpaCommissioningAgent(engine)
-        commissioning_result = asyncio.run(agent.run_autonomous_grandpa_setup())
-        devices_onboarded = commissioning_result.total_devices_onboarded
-        visible_entities = commissioning_result.total_visible_entities
-        circuits_identified = len(commissioning_result.circuit_probe_report.identified_circuits)
-
-    # 2. Copy `custom_components/orchestra` and `orchestra` package into `/config`
+    # 2. The Orchestra integration and HACS
+    custom_dir = ha_config_dir / "custom_components"
     shutil.copytree(
         REPO_ROOT / "custom_components" / "orchestra",
-        ha_config_dir / "custom_components" / "orchestra",
+        custom_dir / "orchestra",
         dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
     )
-    shutil.copytree(
-        REPO_ROOT / "orchestra",
-        ha_config_dir / "orchestra",
-        dirs_exist_ok=True,
-    )
+    hacs_installed = stage_hacs(custom_dir / "hacs", build_dir, hacs_zip, hacs_version) if include_hacs else None
 
-    # 3. Populate the local Supervisor Add-on (`/mnt/data/supervisor/addons/local/orchestra`)
-    addon_src = REPO_ROOT / "haos_image" / "addon_orchestra"
-    for item in ("config.yaml", "Dockerfile", "run.sh"):
-        shutil.copy2(addon_src / item, addon_target_dir / item)
-    shutil.copytree(REPO_ROOT / "orchestra", addon_target_dir / "orchestra", dirs_exist_ok=True)
-    shutil.copytree(
-        REPO_ROOT / "custom_components",
-        addon_target_dir / "custom_components",
-        dirs_exist_ok=True,
-    )
-    shutil.copy2(REPO_ROOT / "pyproject.toml", addon_target_dir / "pyproject.toml")
-    shutil.copy2(REPO_ROOT / "README.md", addon_target_dir / "README.md")
+    # 3. The setup plan the agent works from (Home Assistant storage format, private to root)
+    plan_users = users or []
+    plan = {
+        "version": 1,
+        "minor_version": 1,
+        "key": SETUP_PLAN_KEY,
+        "data": {"created_by": "orchestra image builder", "users": plan_users},
+    }
+    plan_path = ha_config_dir / ".storage" / SETUP_PLAN_KEY
+    plan_path.write_text(json.dumps(plan, indent=2), encoding="utf-8")
+    plan_path.chmod(0o600)
 
-    # 4. Copy DNS liberation rules to `/mnt/data/supervisor/dns`
-    shutil.copy2(
-        ha_config_dir / "orchestra_dnsmasq_liberation.conf",
-        dns_target_dir / "orchestra_dnsmasq_liberation.conf",
-    )
-
-    # 5. Export Orchestra-Agent Long-Lived Access Token and credentials to dist/
+    # 4. Handover files for the installer: the agent token and the human logins
     dist_dir.mkdir(parents=True, exist_ok=True)
     token_src = ha_config_dir / "orchestra_agent_token.txt"
     if token_src.exists():
         shutil.copy2(token_src, dist_dir / "orchestra_agent_token.txt")
-    creds_src = ha_config_dir / "orchestra_agent_credentials.json"
-    if creds_src.exists():
-        shutil.copy2(creds_src, dist_dir / "orchestra_agent_credentials.json")
+    handover = dist_dir / "orchestra_handover.txt"
+    lines = ["Orchestra logins (hand these to the homeowner, then delete this file)", ""]
+    lines += [f"{u['name']}: username {u['username']}, password {u['password']}" for u in plan_users]
+    if not plan_users:
+        lines.append("No logins were set (--user). The agent password stays unchanged until one is added.")
+    handover.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    handover.chmod(0o600)
 
-    # 6. Create `dist/orchestra-preload.tar.gz`
+    # 5. Create `dist/orchestra-preload.tar.gz`
     preload_tar_path = dist_dir / "orchestra-preload.tar.gz"
     with tarfile.open(preload_tar_path, "w:gz") as tar:
         for child in staging_supervisor.iterdir():
@@ -210,10 +174,10 @@ def stage_orchestra_supervisor_payload(
         "staging_supervisor": str(staging_supervisor),
         "preload_tar_path": str(preload_tar_path),
         "preload_tar_size_bytes": preload_tar_path.stat().st_size,
-        "devices_onboarded": devices_onboarded,
-        "visible_entities": visible_entities,
-        "circuits_identified": circuits_identified,
+        "hacs_version": hacs_installed,
+        "users": [u["username"] for u in plan_users],
         "token_path": str(dist_dir / "orchestra_agent_token.txt"),
+        "handover_path": str(handover),
     }
 
 
@@ -647,7 +611,7 @@ def inject_supervisor_payload_into_ext4_partition(
 ) -> dict[str, Any]:
     """
     Directly inject `/supervisor` directory tree (including `homeassistant/.storage`,
-    `homeassistant/custom_components/orchestra`, `addons/local/orchestra`, and `dns`)
+    `homeassistant/custom_components/orchestra` and `hacs`)
     into the `hassos-data` ext4 partition using `debugfs` without requiring root or mounting.
     """
     debugfs_bin = DEBUGFS_BIN if DEBUGFS_BIN.exists() else Path(shutil.which("debugfs") or "debugfs")
@@ -805,10 +769,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Download the official HAOS release for --board and patch it",
     )
     parser.add_argument(
-        "--simulate-hardware",
-        action="store_true",
-        help="Seed simulated test-bench hardware into registries (default: False, generic clean platform)",
+        "--user",
+        action="append",
+        default=[],
+        metavar="'Full Name:username[:password]'",
+        help="A human login the setup agent creates on first boot (repeatable). "
+        "Passwords left out are generated and written to dist/orchestra_handover.txt.",
     )
+    parser.add_argument("--no-hacs", action="store_true", help="Leave HACS out of the image")
+    parser.add_argument("--hacs-zip", type=Path, default=None, help="Use this HACS release zip instead of downloading")
+    parser.add_argument("--hacs-version", default="latest", help="HACS release to download (default: latest)")
     parser.add_argument(
         "--stage-only",
         action="store_true",
@@ -823,11 +793,14 @@ def main(argv: list[str] | None = None) -> int:
     build_dir.mkdir(parents=True, exist_ok=True)
     dist_dir.mkdir(parents=True, exist_ok=True)
 
-    # Step 1: Stage and pack the pre-hijacked Home Assistant + Grandpa Agent bundle
+    # Step 1: Stage and pack the Home Assistant config, Orchestra, HACS and the setup plan
     stage_info = stage_orchestra_supervisor_payload(
         build_dir,
         dist_dir,
-        clean_platform=not args.simulate_hardware,
+        users=[parse_user_spec(spec) for spec in args.user],
+        include_hacs=not args.no_hacs,
+        hacs_zip=args.hacs_zip,
+        hacs_version=args.hacs_version,
     )
     preload_tar = Path(stage_info["preload_tar_path"])
 

@@ -8,9 +8,9 @@ Loaded automatically by `configuration.yaml` (`orchestra:`) or Config Flow.
    `Load Shed`) and publishes granular asset directives (EV charge now, Heat Pump
    run now, A/C pre-cool/pre-heat, Home battery storm watch).
 3. Subscribes to Conductor push events via outbound WebSocket client and local Webhook.
-4. Aborts cloud-tethered discovery flows (`tuya`, `sensibo`, `tesla_fleet`, etc.)
-   and triggers Orchestra's local zero-cloud onboarding pipeline instead.
-5. Enforces hard-coded compressor dwell (15-min) and setpoint offset guardrails on the HA bus.
+4. On a fresh Orchestra image, runs the setup agent (`setup_agent.py`) that finishes
+   setup after Home Assistant's own discovery and keeps a punch list for the rest.
+5. Enforces compressor dwell (10-min) and setpoint offset guardrails.
 6. Provides 1-tap customer opt-out with zero financial or contractual penalty.
 """
 
@@ -44,7 +44,6 @@ try:
         DEFAULT_NODE_ID,
         DEFAULT_POLL_INTERVAL_SECONDS,
         DOMAIN,
-        INTERCEPTED_CLOUD_FLOW_DOMAINS,
         PLATFORMS,
     )
     from .blueprint_installer import install_blueprints
@@ -76,7 +75,6 @@ except ImportError:
         DEFAULT_NODE_ID,
         DEFAULT_POLL_INTERVAL_SECONDS,
         DOMAIN,
-        INTERCEPTED_CLOUD_FLOW_DOMAINS,
         PLATFORMS,
     )
     from custom_components.orchestra.blueprint_installer import install_blueprints
@@ -84,12 +82,6 @@ except ImportError:
     from custom_components.orchestra.heat_pump_control import async_setup_heat_pump_control
     from custom_components.orchestra.hvac_drift import async_setup_hvac_drift
     from custom_components.orchestra.safety_guard import InProcessSafetyGuard
-try:
-    from orchestra.config import OrchestraConfig
-    from orchestra.orchestrator import OrchestraEngine
-except ImportError:
-    OrchestraConfig = None  # type: ignore
-    OrchestraEngine = None  # type: ignore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -125,7 +117,7 @@ async def async_setup(hass: Any, config: dict[str, Any]) -> bool:
     Works both inside a real `homeassistant.core.HomeAssistant` runtime and in
     lightweight mock `hass` test harnesses.
     """
-    domain_cfg = config.get(DOMAIN, {})
+    domain_cfg = config.get(DOMAIN) or {}
     min_dwell = int(domain_cfg.get(CONF_HVAC_MIN_DWELL_SECONDS, DEFAULT_HVAC_MIN_DWELL_SECONDS))
     max_offset = float(domain_cfg.get(CONF_HVAC_MAX_SETPOINT_OFFSET_C, DEFAULT_HVAC_MAX_SETPOINT_OFFSET_C))
     min_hpwh = float(domain_cfg.get(CONF_HPWH_MIN_TEMP_C, DEFAULT_HPWH_MIN_TEMP_C))
@@ -137,27 +129,12 @@ async def async_setup(hass: Any, config: dict[str, Any]) -> bool:
     conductor_api_key = domain_cfg.get(CONF_CONDUCTOR_API_KEY)
     node_id = domain_cfg.get(CONF_NODE_ID, DEFAULT_NODE_ID)
 
-    if OrchestraConfig is not None and OrchestraEngine is not None:
-        orch_config = OrchestraConfig()
-        orch_config.safety.hvac_min_dwell_seconds = min_dwell
-        orch_config.safety.hvac_max_setpoint_offset_c = max_offset
-        engine = OrchestraEngine(orch_config)
-    else:
-        engine = None
     safety_guard = InProcessSafetyGuard(
         hvac_min_dwell_seconds=min_dwell,
         hvac_max_setpoint_offset_c=max_offset,
         hpwh_min_temp_c=min_hpwh,
         hpwh_max_temp_c=max_hpwh,
     )
-
-    try:
-        from .flow_resolver import AutonomousHardwareHijacker
-    except ImportError:
-        from custom_components.orchestra.flow_resolver import AutonomousHardwareHijacker
-
-    hardware_hijacker = AutonomousHardwareHijacker(hass)
-    hardware_hijacker.start()
 
     coordinator = OrchestraDataUpdateCoordinator(
         hass=hass,
@@ -178,44 +155,39 @@ async def async_setup(hass: Any, config: dict[str, Any]) -> bool:
     )
 
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN]["engine"] = engine
     hass.data[DOMAIN]["safety_guard"] = safety_guard
-    hass.data[DOMAIN]["hardware_hijacker"] = hardware_hijacker
     hass.data[DOMAIN]["coordinator"] = coordinator
     hass.data[DOMAIN]["subscriber"] = subscriber
-    hass.data[DOMAIN]["aborted_cloud_flows"] = []
 
     _safe_async_create_task(hass, coordinator.async_start())
     _safe_async_create_task(hass, subscriber.async_start())
 
-    async def _on_flow_initiated(event: Any) -> None:
-        """Intercept cloud discovery flows and auto-resolve hardware flows."""
-        data = getattr(event, "data", event if isinstance(event, dict) else {})
-        flow_domain = data.get("handler") or data.get("domain")
-        flow_id = data.get("flow_id")
-        if flow_domain in INTERCEPTED_CLOUD_FLOW_DOMAINS:
-            _LOGGER.info(
-                "Orchestra hijacked and suppressed cloud config flow for domain '%s' (flow_id=%s)",
-                flow_domain,
-                flow_id,
-            )
-            hass.data[DOMAIN]["aborted_cloud_flows"].append(
-                {"domain": flow_domain, "flow_id": flow_id}
-            )
-            if hasattr(hass, "config_entries") and hasattr(hass.config_entries, "flow"):
-                try:
-                    hass.config_entries.flow.async_abort(flow_id)
-                except Exception:
-                    pass
-        else:
-            # Trigger immediate sweep to auto-resolve discovered hardware
-            if hardware_hijacker:
-                _safe_async_create_task(hass, hardware_hijacker.sweep_and_resolve_flows())
+    await _async_start_setup_agent(hass)
 
-    if hasattr(hass, "bus") and hasattr(hass.bus, "async_listen"):
-        hass.bus.async_listen("config_entry_flow_initiated", _on_flow_initiated)
+    # `orchestra:` in configuration.yaml (as the image writes it) gets a config entry, so the
+    # entities and the punch list load without anyone opening the integrations page
+    entries = getattr(getattr(hass, "config_entries", None), "async_entries", None)
+    if DOMAIN in config and callable(entries) and not entries(DOMAIN):
+        _safe_async_create_task(
+            hass,
+            hass.config_entries.flow.async_init(DOMAIN, context={"source": "import"}, data={}),
+        )
 
     return True
+
+
+async def _async_start_setup_agent(hass: Any) -> None:
+    """Start the setup agent where the Orchestra image left a setup plan."""
+    if "setup_agent" in hass.data.get(DOMAIN, {}) or not hasattr(hass, "auth"):
+        return
+    try:
+        from .setup_agent import OrchestraSetupAgent
+    except ImportError:  # outside Home Assistant
+        return
+    agent = await OrchestraSetupAgent.async_load(hass)
+    hass.data.setdefault(DOMAIN, {})["setup_agent"] = agent
+    if agent is not None:
+        agent.async_start()
 
 
 async def async_setup_entry(hass: Any, entry: Any) -> bool:
@@ -263,6 +235,7 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
         _safe_async_create_task(hass, subscriber.async_start())
 
     await _async_install_blueprints(hass)
+    await _async_start_setup_agent(hass)
     await async_setup_hvac_drift(hass)
     await async_setup_heat_pump_control(hass)
 

@@ -5,22 +5,46 @@
 
 ---
 
-## 1. How Orchestra Hijacks the Home Assistant Process
+## 1. How the Orchestra Image Sets Up Home Assistant
 
-Standard Home Assistant installations suffer from high user & installer friction: interactive onboarding wizards, cloud OAuth redirects, developer portal registrations (e.g., Tuya IoT Platform), and raw dashboards cluttered with 100+ uncurated entities.
+Standard Home Assistant installations ask a lot of the homeowner: an onboarding wizard,
+a pile of "discovered" cards to click through, pairing codes, and raw dashboards with 100+
+uncurated entities. The Orchestra image takes over the parts a machine can do and turns the
+rest into a short punch list.
 
-Orchestra eliminates this via two coordinated layers:
+1. **Onboarding is already finished ([`orchestra/hijacker/bootstrap.py`](orchestra/hijacker/bootstrap.py)).**
+   The image builder marks all four onboarding steps done, creates the `Orchestra-Agent` owner
+   account with a long-lived access token, and seeds Perth, AUD and metric units in
+   `.storage/core.config`. `configuration.yaml` loads `default_config:`, so Home Assistant's own
+   discovery (zeroconf, SSDP, DHCP, Bluetooth) runs normally, and `orchestra:`.
+2. **HACS and Orchestra are preloaded** in `custom_components/`. Orchestra creates its own config
+   entry on first boot.
+3. **Home Assistant discovers the equipment itself.** Nothing is blocked: no DNS sinkhole, no
+   aborted cloud flows.
+4. **The setup agent takes over ([`custom_components/orchestra/setup_agent.py`](custom_components/orchestra/setup_agent.py)).**
+   It only runs where the image left a setup plan (`.storage/orchestra.setup_plan`), so a normal
+   HACS install is never touched. Once discovery has gone quiet (3 to 15 minutes after start) it:
+   - sets up the integrations stock onboarding would have (Met weather, radio, TTS, shopping list),
+   - confirms every discovered device that needs no input,
+   - puts every device that needs a person (a pairing code, a serial number, a button press, a
+     sign-in) on the **Orchestra setup** to-do list (`todo.orchestra_setup`), plus connecting
+     HACS to GitHub,
+   - sorts devices into rooms and labels them by kind (Heating & cooling, Hot water, EV charging,
+     Solar & battery, Lighting, Entertainment, Security),
+   - fills the Conductor asset blueprints (section 3.5) with the matching A/Cs (zones on zoned
+     systems), heat pumps and their power switches, EV chargers and battery reserves,
+   - creates the human logins from the setup plan, then gives the `Orchestra-Agent` account a random
+     password nobody knows (it keeps working through its token) and deletes the plaintext
+     credentials file,
+   - posts a summary notification.
 
-1. **Out-of-Process Bootstrap & `.storage` Hijacker ([`orchestra/hijacker/`](orchestra/hijacker/))**:
-   - **Onboarding Bypass ([`bootstrap.py`](orchestra/hijacker/bootstrap.py))**: Pre-completes all 4 Home Assistant onboarding steps (`user`, `core_config`, `analytics`, `integration`) in `.storage/onboarding`, seeds Western Australian (`Australia/Perth`, `AUD`, metric) locale settings in `.storage/core.config`, disables cloud telemetry, and provisions a deterministic local system owner and long-lived access token in `.storage/auth`.
-   - **Direct Registry Injection ([`storage_injector.py`](orchestra/hijacker/storage_injector.py))**: Writes pre-authenticated local `ConfigEntry` records directly into `.storage/core.config_entries`, registers hardware with MAC/serial identifiers in `.storage/core.device_registry`, assigns logical rooms in `.storage/core.area_registry`, and registers only curated, human-named entities in `.storage/core.entity_registry`.
-   - **DNS Cloud Sinkhole & Activation Redirector ([`cloud_blocker.py`](orchestra/hijacker/cloud_blocker.py))**: Generates local `dnsmasq` rules redirecting Tuya activation endpoints (`a.tuya.com`, `m2.tuya.com`) to the local Z-Node IP while sinkholing hostile vendor OTA firmware domains (`ota.tuya.com`, `firmware.sensibo.com`, `ota.myair.com.au`, `rheem.clearblade.com`, `ota.rinnai.com.au`) that could disable local ports.
-2. **In-Process Home Assistant Custom Component ([`custom_components/orchestra/`](custom_components/orchestra/))**:
-   - Hooks `config_entry_flow_initiated` on the Home Assistant event bus to automatically abort noisy cloud discovery flows (`tuya`, `sensibo`, `tesla_fleet`, `smartthings`, `rheem_econet`, `rinnai`, `stiebel_eltron_cloud`) so Orchestra's local adapters take precedence.
-   - Enforces **hard-coded hardware warranty guardrails** ([`safety_guard.py`](custom_components/orchestra/safety_guard.py)):
-     - **10-Minute Minimum HVAC Compressor Dwell Timer (`600s`)**: Prevents short-cycling compressor damage during rapid grid price fluctuations (per Conductor v1.2.0 spec).
-     - **Setpoint-Offset-Only HVAC Control (`<= 2.0°C`)**: Never cuts raw mains power to inverter-driven air conditioners.
-     - **Heat Pump Thermal Storage Boundaries (`50°C–65°C`)**: Uses water thermal mass (`65°C` solar soak boost, `50°C` peak coast) with weekly `>= 60°C` Legionella sterilization protection and zero dry-element cycling.
+   It re-checks every 10 minutes for a day, so late discoveries are picked up and punch list items
+   tick themselves off once the person finishes them. The matching rules live in
+   [`setup_planner.py`](custom_components/orchestra/setup_planner.py).
+
+The in-process integration also enforces **hardware warranty guardrails**
+([`safety_guard.py`](custom_components/orchestra/safety_guard.py)): a 10-minute compressor dwell,
+setpoint-offset-only HVAC control (`<= 2.0°C`), and heat pump storage limits (`50°C–65°C`).
 
 ---
 
@@ -136,9 +160,11 @@ setpoint gets the new one re-sent twice before Orchestra accepts it as a manual 
 
 ---
 
-## 4. The "So Easy Grandpa Can Set It Up" Agent Framework ([`orchestra/agent/`](orchestra/agent/))
+## 4. The Bench Commissioning Agent ([`orchestra/agent/`](orchestra/agent/))
 
-The user never sets up Home Assistant—the **Orchestra Agent** ([`GrandpaCommissioningAgent`](orchestra/agent/framework.py)) executes a 6-stage autonomous workflow:
+This is the original bench demo, run from the CLI against a sandbox config. It works on a
+simulated inventory of all 23 first-pass brands and is **not** part of the image any more: the
+image uses the setup agent in section 1. Its 6 stages:
 
 1. **Stage 1 — Zero-Cloud Hijack & Standard HA Discovery Ingestion**: Onboards all local solar, battery, HVAC, heat pump, EV charger, and Tuya hardware AND ingests standard Home Assistant auto-discovered devices (Smart TVs, Hue/LIFX lights, garage roller doors, Shelly CT clamps).
 2. **Stage 2 — Active Load-Stepping Circuit Identification ([`circuit_identifier.py`](orchestra/agent/circuit_identifier.py))**:
@@ -188,15 +214,25 @@ The pre-built Home Assistant OS 15.2 (`rpi5-64`) image with all Orchestra modifi
    `dist/haos_rpi5-64_orchestra_preloaded.img.xz`
 3. Select your MicroSD card or NVMe SSD (16 GB+ recommended) and click **Write**. (Do **not** apply Raspberry Pi Imager OS customisation settings when prompted—Orchestra's `CONFIG` and `.storage` payload are already embedded.)
 
-### Option B: Rebuild with Your Home Wi-Fi Pre-Configured
-If your Raspberry Pi 5 will connect via Wi-Fi instead of Ethernet, bake your Wi-Fi credentials into the `CONFIG/network/orchestra-wifi.nmconnection` profile before flashing:
+### Option B: Rebuild with Logins and Wi-Fi Pre-Configured
+Name the homeowner logins the setup agent should create, and bake in Wi-Fi if the Pi won't use
+Ethernet:
 
 ```bash
 /opt/homebrew/bin/python3 haos_image/build_rpi_image.py \
   --board rpi5-64 \
-  --base-image build/haos_rpi5-64-15.2.img.xz \
+  --download-official \
+  --user "Dee Ben:dee" \
+  --user "Sam Ben:sam:ChosenPassword" \
   --wifi-ssid "YourHomeWiFi" \
   --wifi-psk "YourWiFiPassword"
 ```
-*(also supports `--board rpi3-64` and `--board rpi4-64`)*
 
+- `--user "Full Name:username[:password]"` can be repeated. Missing passwords are generated. All
+  logins are written to `dist/orchestra_handover.txt` for the installer to hand over. Without any
+  `--user`, the agent password is left unchanged and the punch list asks for a login instead.
+- HACS is downloaded from its latest GitHub release. Use `--hacs-version 2.0.5` to pin one,
+  `--hacs-zip path/to/hacs.zip` to build offline, or `--no-hacs` to leave it out.
+- The agent's long-lived token is written to `dist/orchestra_agent_token.txt`.
+
+*(also supports `--board rpi3-64` and `--board rpi4-64`)*
