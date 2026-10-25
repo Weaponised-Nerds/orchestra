@@ -140,22 +140,13 @@ class TestHAHijackerAndSafety(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(hp_clamped["temperature"], 65.0)
 
-    async def test_custom_component_aborts_cloud_discovery_flows(self) -> None:
+    async def test_custom_component_leaves_cloud_discovery_flows_alone(self) -> None:
+        # The image no longer blocks cloud integrations: the setup agent lists them instead
         hass = _MockHass()
         ok = await async_setup(hass, {"orchestra": {"hvac_min_dwell_seconds": 900}})
         self.assertTrue(ok)
-
-        await hass.bus.async_fire(
-            "config_entry_flow_initiated",
-            {"handler": "tuya", "flow_id": "cloud_flow_123"},
-        )
-        await hass.bus.async_fire(
-            "config_entry_flow_initiated",
-            {"handler": "sensibo", "flow_id": "cloud_flow_456"},
-        )
-        aborted = hass.data["orchestra"]["aborted_cloud_flows"]
-        self.assertEqual(len(aborted), 2)
-        self.assertEqual({item["domain"] for item in aborted}, {"tuya", "sensibo"})
+        self.assertNotIn("aborted_cloud_flows", hass.data["orchestra"])
+        self.assertNotIn("hardware_hijacker", hass.data["orchestra"])
 
     def test_conductor_counterfactual_and_opt_out(self) -> None:
         conductor = ConductorDemandResponseAdapter(self.config)

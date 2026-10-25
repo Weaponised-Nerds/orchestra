@@ -89,19 +89,4 @@ SWITCH_CONDUCTOR_OPT_OUT = "conductor_opt_out"
 EVENT_ORCHESTRA_CONDUCTOR_DISPATCH = "orchestra_conductor_dispatch_event"
 EVENT_ORCHESTRA_ASSET_DIRECTIVE = "orchestra_asset_directive_event"
 
-PLATFORMS: list[str] = ["sensor", "binary_sensor", "select", "switch"]
-
-# Cloud-dependent HA domains automatically intercepted and aborted when
-# discovered via zeroconf/ssdp/dhcp so Orchestra's local adapters take over.
-INTERCEPTED_CLOUD_FLOW_DOMAINS: frozenset[str] = frozenset(
-    {
-        "tuya",
-        "sensibo",
-        "tesla_fleet",
-        "smartthings",
-        "rheem_econet",
-        "rinnai",
-        "stiebel_eltron_cloud",
-        "myair_cloud",
-    }
-)
+PLATFORMS: list[str] = ["sensor", "binary_sensor", "select", "switch", "todo"]
