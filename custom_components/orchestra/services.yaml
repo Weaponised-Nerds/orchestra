@@ -48,3 +48,6 @@ apply_heat_pump:
     boost_operation_mode:
       selector:
         text: {}
+    normal_operation_mode:
+      selector:
+        text: {}

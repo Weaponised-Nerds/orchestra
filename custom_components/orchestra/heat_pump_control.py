@@ -46,12 +46,37 @@ def directive_phase(attrs: dict[str, Any]) -> str:
     return "normal"
 
 
+def clamp_temperature(temperature: float | None, attrs: dict[str, Any]) -> float | None:
+    """Keep a target inside the unit's own range (a pool heat pump tops out near 30 °C)."""
+    if temperature is None:
+        return None
+    low, high = _as_float(attrs.get("min_temp")), _as_float(attrs.get("max_temp"))
+    if high is not None:
+        temperature = min(temperature, high)
+    if low is not None:
+        temperature = max(temperature, low)
+    return temperature
+
+
+def match_operation_mode(mode: str | None, attrs: dict[str, Any]) -> str | None:
+    """The unit's own spelling of `mode` ("Boost" -> "boost"), or None if it has no such mode."""
+    if not mode:
+        return None
+    modes = attrs.get("operation_list")
+    if not modes:
+        return mode
+    return next((m for m in modes if str(m).lower() == mode.lower()), None)
+
+
 def snapshot(domain: str, state: str, attrs: dict[str, Any]) -> dict[str, Any]:
     """What the heat pump is doing now, enough to put it back later."""
     held: dict[str, Any] = {"on": state not in ("off", "idle") if domain != "switch" else state == "on"}
     if domain == "water_heater":
         held["temperature"] = _as_float(attrs.get("temperature"))
-        held["operation_mode"] = attrs.get("operation_mode") or (state if state != "off" else None)
+        # localtuya leaves operation_mode empty and the state unknown; there is no mode to keep
+        held["operation_mode"] = attrs.get("operation_mode") or (
+            state if state not in ("off", *UNAVAILABLE_STATES) else None
+        )
     elif domain == "climate":
         held["hvac_mode"] = state
         held["temperature"] = _as_float(attrs.get("temperature"))
@@ -122,10 +147,16 @@ class HeatPumpController:
         power_only: bool = False,
     ) -> dict[str, Any]:
         state = self.hass.states.get(entity_id)
-        if state is None or state.state in UNAVAILABLE_STATES:
-            return {"reason": f"{entity_id} is {state.state if state else 'missing'}"}
         # A power switch is only ever switched, whatever its domain
         domain = "switch" if power_only else entity_id.split(".", 1)[0]
+        # A water heater whose integration never reports a mode (localtuya) shows as
+        # unknown but still takes temperatures; only skip one that's really not there
+        usable_unknown = (
+            state is not None and state.state == "unknown" and domain in ("water_heater", "climate")
+            and "temperature" in state.attributes
+        )
+        if state is None or (state.state in UNAVAILABLE_STATES and not usable_unknown):
+            return {"reason": f"{entity_id} is {state.state if state else 'missing'}"}
         now = snapshot(domain, state.state, state.attributes)
         apply, held, reason = plan_heat_pump(
             self._held.get(entity_id), phase=phase, now=now, setpoint_only=setpoint_only
@@ -134,13 +165,15 @@ class HeatPumpController:
             self._held.pop(entity_id, None)
         else:
             self._held[entity_id] = held
-        result = {"phase": phase, "was_on": now["on"], "reason": reason}
+        result: dict[str, Any] = {"phase": phase, "was_on": now["on"], "reason": reason}
         if apply is None:
             return result
+        if phase == "soak" and domain in ("water_heater", "climate"):
+            result["temperature"] = clamp_temperature(soak_temperature, state.attributes)
         _LOGGER.info("Orchestra heat pump %s: %s", entity_id, result)
         try:
             if phase == "soak":
-                await self._async_soak(entity_id, domain, soak_temperature, call, setpoint_only)
+                result.update(await self._async_soak(entity_id, domain, soak_temperature, call, setpoint_only))
             elif phase == "shed":
                 await self._async_call(domain if domain != "switch" else "homeassistant", "turn_off", entity_id, {}, call)
             else:
@@ -152,29 +185,45 @@ class HeatPumpController:
 
     async def _async_soak(
         self, entity_id: str, domain: str, temperature: float | None, call: Any, setpoint_only: bool
-    ) -> None:
+    ) -> dict[str, Any]:
+        """Switch on and set the soak target; returns notes for the trace."""
+        notes: dict[str, Any] = {}
+        state = self.hass.states.get(entity_id)
+        temperature = clamp_temperature(temperature, state.attributes)
         if domain == "water_heater":
             data: dict[str, Any] = {}
             if temperature is not None:
                 data["temperature"] = temperature
             boost = call.data.get("boost_operation_mode")
-            if boost:
-                data["operation_mode"] = boost
-            elif not setpoint_only and self.hass.states.get(entity_id).state == "off":
+            mode = match_operation_mode(boost, state.attributes)
+            if mode:
+                data["operation_mode"] = mode
+            elif boost:
+                notes["operation_mode"] = f"{boost} isn't one of {state.attributes.get('operation_list')}"
+            if not mode and not setpoint_only and state.state == "off":
                 await self._async_call("water_heater", "turn_on", entity_id, {}, call)
             if data:
                 await self._async_call("water_heater", "set_temperature", entity_id, data, call)
         elif domain == "climate":
-            if not setpoint_only and self.hass.states.get(entity_id).state == "off":
+            if not setpoint_only and state.state == "off":
                 await self._async_call("climate", "turn_on", entity_id, {}, call)
+            if temperature is not None:
+                await self._async_call("climate", "set_temperature", entity_id, {"temperature": temperature}, call)
         else:
             await self._async_call("homeassistant", "turn_on", entity_id, {}, call)
+        return notes
 
     async def _async_restore(
         self, entity_id: str, domain: str, held: dict[str, Any], call: Any, setpoint_only: bool
     ) -> None:
         if domain == "water_heater":
             data = {k: held[k] for k in ("temperature", "operation_mode") if held.get(k) is not None}
+            if "operation_mode" not in data:
+                # The heater never said which mode it was in; fall back to the configured one
+                state = self.hass.states.get(entity_id)
+                mode = match_operation_mode(call.data.get("normal_operation_mode"), state.attributes if state else {})
+                if mode:
+                    data["operation_mode"] = mode
             if setpoint_only:
                 if data:
                     service = "set_temperature" if "temperature" in data else "set_operation_mode"
@@ -234,6 +283,7 @@ async def async_setup_heat_pump_control(hass: Any) -> None:
                 vol.Optional("power_switch", default=[]): cv.entity_ids,
                 vol.Optional("target_sensor", default=DEFAULT_TARGET_SENSOR): cv.entity_id,
                 vol.Optional("boost_operation_mode", default=""): cv.string,
+                vol.Optional("normal_operation_mode", default=""): cv.string,
             }
         ),
         supports_response=SupportsResponse.OPTIONAL,
