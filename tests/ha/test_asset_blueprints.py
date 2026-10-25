@@ -266,3 +266,31 @@ async def test_heat_pump_and_battery_follow_directives(hass, setup) -> None:
     hass.states.async_set(RESERVE, "100.0", {"action": "STORM_WATCH_HOLD", "charge_from_grid": True})
     await hass.async_block_till_done()
     assert calls[-1].domain == "number" and calls[-1].data["value"] == 100.0
+
+
+async def test_hvac_action_reports_why(hass, setup) -> None:
+    """The response explains each decision, so a trace shows why a setpoint did or didn't move."""
+    _set_climate(hass, "heat", 21.0)
+    _set_offset(hass, 1.5, "shed")
+    await hass.async_block_till_done()
+    response = await hass.services.async_call(
+        "orchestra", "apply_hvac_offset", {"entity_id": CLIMATE}, blocking=True, return_response=True
+    )
+    assert response[CLIMATE]["offset"] == 1.5
+    assert response[CLIMATE]["new_setpoint"] is None  # the automation already applied it
+    assert "already at 19.5" in response[CLIMATE]["reason"]
+    assert _setpoint(hass) == 19.5
+
+    hass.states.async_set(OFFSET, "0.0", {"dispatch_mode": "idle"})
+    response = await hass.services.async_call(
+        "orchestra", "apply_hvac_offset", {"entity_id": BEDROOM}, blocking=True, return_response=True
+    )
+    assert response[BEDROOM]["reason"].startswith("offset is 0")
+
+
+async def test_ev_switch_only_toggled_when_needed(hass, setup) -> None:
+    calls = setup
+    hass.states.async_set(CHARGER_SWITCH, "on")
+    hass.states.async_set(AMPS, "10", {"action": "CHARGE_NOW"})
+    await hass.async_block_till_done()
+    assert [c.service for c in calls[-1:]] == ["set_value"]

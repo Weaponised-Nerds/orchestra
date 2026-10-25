@@ -90,6 +90,9 @@ actions:
               - condition: template
                 value_template: "{{ has_switch }}"
             then:
+              # Only when on: some chargers reject stopping a charge that isn't running
+              - condition: template
+                value_template: "{{ not is_state(charger_switch, 'off') }}"
               - action: switch.turn_off
                 target:
                   entity_id: "{{ charger_switch }}"
@@ -106,8 +109,9 @@ actions:
         data:
           value: "{{ [[wanted, min_amps] | max, max_amps] | min }}"
       - if:
+          # Only when off: e.g. Tesla rejects starting a charge that is already running
           - condition: template
-            value_template: "{{ has_switch }}"
+            value_template: "{{ has_switch and not is_state(charger_switch, 'on') }}"
         then:
           - action: switch.turn_on
             target:

@@ -76,7 +76,9 @@ triggers:
     minutes: /5
 
 actions:
+  # The response (offset, setpoints and the reason for what was done) shows in the trace
   - action: orchestra.apply_hvac_offset
+    response_variable: drift
     data:
       entity_id: !input climate_entity
       offset_sensor: !input offset_sensor
