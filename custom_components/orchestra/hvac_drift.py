@@ -32,6 +32,11 @@ def _round_clamp(value: float, step: float, min_temp: float, max_temp: float) ->
     return round(min(max(round(value / step) * step, min_temp), max_temp), 2)
 
 
+# A unit still showing its old setpoint after we sent a new one gets it re-sent this
+# many times; any other value means someone changed it by hand
+MAX_RESENDS = 2
+
+
 def plan_drift(
     held: dict[str, float] | None,
     *,
@@ -44,13 +49,16 @@ def plan_drift(
     max_temp: float,
     invert_shed_when_heating: bool = True,
     skip_when_off: bool = True,
-) -> tuple[float | None, dict[str, float] | None]:
+) -> tuple[float | None, dict[str, float] | None, str]:
     """
-    Work out the setpoint to send (None = leave it) and what to remember next
-    (None = nothing held) from what was held for this A/C and its live state.
+    Work out the setpoint to send (None = leave it), what to remember next
+    (None = nothing held), and a short reason, from what was held for this A/C
+    and its live state.
     """
-    if current is None or hvac_mode in UNAVAILABLE_STATES:
-        return None, held
+    if current is None:
+        return None, held, "no single setpoint (temperature attribute missing)"
+    if hvac_mode in UNAVAILABLE_STATES:
+        return None, held, f"unit is {hvac_mode}"
 
     if invert_shed_when_heating and hvac_mode == "heat" and dispatch_mode == "shed":
         offset = -abs(offset)
@@ -59,24 +67,40 @@ def plan_drift(
     tolerance = unit_step / 2 + 0.01 if step else 0.51
 
     if held is not None and abs(current - held["target"]) > tolerance:
-        # Changed by hand mid-drift: their setpoint becomes the new starting point
-        held = {**held, "baseline": current - held["offset"], "target": current}
+        untaken = (
+            abs(current - held.get("before", float("nan"))) <= tolerance
+            and held.get("resends", 0) < MAX_RESENDS
+        )
+        if not untaken:
+            # Changed by hand mid-drift: their setpoint becomes the new starting point
+            held = {"baseline": current - held["offset"], "target": current, "offset": held["offset"]}
 
     if abs(offset) < 0.05:
         if held is None:
-            return None, None
+            return None, None, "offset is 0 and no drift is held"
         target = _round_clamp(held["baseline"], unit_step, min_temp, max_temp)
-        return (target if abs(target - current) > 0.01 else None), None
+        if abs(target - current) <= 0.01:
+            return None, None, "offset is 0; already at starting setpoint"
+        return target, None, f"offset is 0; restoring starting setpoint {held['baseline']}"
 
     if held is None:
         if skip_when_off and hvac_mode == "off":
-            return None, None
+            return None, None, "unit is off"
         held = {"baseline": current}
     target = _round_clamp(held["baseline"] + offset, unit_step, min_temp, max_temp)
+    reason = f"starting setpoint {held['baseline']} + offset {offset}"
     next_held = {"baseline": held["baseline"], "target": target, "offset": offset}
-    # Re-send only for a new target, not when the unit merely rounded the last one
-    unchanged = "target" in held and abs(held["target"] - target) < 0.01 and abs(current - target) <= tolerance
-    return (None if unchanged or abs(target - current) < 0.01 else target), next_held
+    same_target = "target" in held and abs(held["target"] - target) < 0.01
+
+    # Leave it when it's there, allowing for the unit rounding a target we already sent
+    if abs(current - target) <= (tolerance if same_target else 0.01):
+        return None, next_held, f"{reason}; already at {current}"
+    if same_target and "before" in held:
+        # The unit still shows its old setpoint: send ours again
+        next_held.update(before=held["before"], resends=held.get("resends", 0) + 1)
+        return target, next_held, f"{reason}; unit still at {current}, re-sending"
+    next_held.update(before=current, resends=0)
+    return target, next_held, reason
 
 
 class HvacDriftController:
@@ -93,32 +117,39 @@ class HvacDriftController:
     async def async_load(self) -> None:
         self._held = await self._store.async_load() or {}
 
-    async def async_apply(self, call: Any) -> None:
+    async def async_apply(self, call: Any) -> dict[str, Any]:
         offset_sensor = call.data.get("offset_sensor", DEFAULT_OFFSET_SENSOR)
         offset_state = self.hass.states.get(offset_sensor)
         if offset_state is None or offset_state.state in UNAVAILABLE_STATES:
-            return
+            _LOGGER.info("Orchestra HVAC drift skipped: %s is %s", offset_sensor,
+                         offset_state.state if offset_state else "missing")
+            return {"skipped": f"{offset_sensor} is {offset_state.state if offset_state else 'missing'}"}
         try:
             offset = float(offset_state.state)
         except ValueError:
-            return
+            return {"skipped": f"{offset_sensor} is not a number ({offset_state.state})"}
 
+        results: dict[str, Any] = {}
         async with self._lock:
             for entity_id in call.data["entity_id"]:
-                await self._async_apply_one(entity_id, offset, offset_state.attributes, call)
+                results[entity_id] = await self._async_apply_one(
+                    entity_id, offset, offset_state.attributes, call
+                )
             self._store.async_delay_save(lambda: self._held, 1)
+        return results
 
     async def _async_apply_one(
         self, entity_id: str, offset: float, offset_attrs: Any, call: Any
-    ) -> None:
+    ) -> dict[str, Any]:
         climate = self.hass.states.get(entity_id)
         if climate is None:
-            return
+            return {"reason": "entity not found"}
         attrs = climate.attributes
         current = attrs.get("temperature")
-        target, held = plan_drift(
+        current = float(current) if isinstance(current, (int, float)) else None
+        target, held, reason = plan_drift(
             self._held.get(entity_id),
-            current=float(current) if isinstance(current, (int, float)) else None,
+            current=current,
             hvac_mode=climate.state,
             offset=offset,
             dispatch_mode=offset_attrs.get("dispatch_mode"),
@@ -132,8 +163,16 @@ class HvacDriftController:
             self._held.pop(entity_id, None)
         else:
             self._held[entity_id] = held
+        result = {
+            "hvac_mode": climate.state,
+            "current_setpoint": current,
+            "offset": offset,
+            "dispatch_mode": offset_attrs.get("dispatch_mode"),
+            "new_setpoint": target,
+            "reason": reason,
+        }
+        (_LOGGER.info if target is not None else _LOGGER.debug)("Orchestra HVAC drift %s: %s", entity_id, result)
         if target is not None:
-            _LOGGER.debug("Orchestra HVAC drift: %s -> %s °C (offset %s)", entity_id, target, offset)
             await self.hass.services.async_call(
                 "climate",
                 "set_temperature",
@@ -141,6 +180,7 @@ class HvacDriftController:
                 blocking=True,
                 context=call.context,
             )
+        return result
 
 
 async def async_setup_hvac_drift(hass: Any) -> None:
@@ -152,6 +192,7 @@ async def async_setup_hvac_drift(hass: Any) -> None:
         return
     try:
         import voluptuous as vol
+        from homeassistant.core import SupportsResponse
         from homeassistant.helpers import config_validation as cv
     except ImportError:
         return
@@ -170,4 +211,5 @@ async def async_setup_hvac_drift(hass: Any) -> None:
                 vol.Optional("skip_when_off", default=True): cv.boolean,
             }
         ),
+        supports_response=SupportsResponse.OPTIONAL,
     )

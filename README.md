@@ -130,6 +130,9 @@ each reading one directive sensor above. Create automations from them in
 The HVAC blueprint needs no helper: Orchestra keeps each A/C's starting setpoint in
 `.storage/orchestra.hvac_drift`, so drifts survive restarts and repeated calls are
 idempotent. `orchestra.apply_hvac_offset` can also be called from your own automations.
+Its response (offset, current and new setpoint, and the reason) appears in the automation
+trace as `drift`, so a setpoint that didn't move says why. A unit that still shows its old
+setpoint gets the new one re-sent twice before Orchestra accepts it as a manual change.
 
 ---
 

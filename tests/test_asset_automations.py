@@ -253,10 +253,11 @@ class TestHvacDriftPlan(unittest.TestCase):
     """`plan_drift` decides each `orchestra.apply_hvac_offset` call from remembered state."""
 
     def _plan(self, held, current, offset, mode="cool", dispatch="shed", step=0.5):
-        return plan_drift(
+        target, held, _reason = plan_drift(
             held, current=current, hvac_mode=mode, offset=offset, dispatch_mode=dispatch,
             step=step, min_temp=16, max_temp=30,
         )
+        return target, held
 
     def test_sequence_never_compounds_and_restores(self) -> None:
         held = None
@@ -267,14 +268,28 @@ class TestHvacDriftPlan(unittest.TestCase):
         target, held = self._plan(held, 24.5, 0.0, dispatch="idle")
         self.assertEqual((target, held), (23.0, None))
 
+    def test_heating_shed_drops_setpoint(self) -> None:
+        target, held = self._plan(None, 21.0, 1.5, mode="heat", dispatch="shed")
+        self.assertEqual(target, 19.5)
+        self.assertEqual(self._plan(held, 19.5, 0.0, mode="heat", dispatch="idle")[0], 21.0)
+
     def test_steady_offset_is_applied_once(self) -> None:
         target, held = self._plan(None, 23.0, 1.5)
         self.assertEqual(target, 24.5)
-        self.assertEqual(self._plan(held, 24.5, 1.5), (None, held))
+        self.assertIsNone(self._plan(held, 24.5, 1.5)[0])
+
+    def test_unit_that_ignored_the_command_gets_it_resent(self) -> None:
+        """A unit that hasn't taken the setpoint yet isn't mistaken for a manual change."""
+        _, held = self._plan(None, 21.0, 1.5)
+        for _ in range(2):
+            target, held = self._plan(held, 21.0, 1.5)
+            self.assertEqual(target, 22.5)
+            self.assertEqual(held["baseline"], 21.0)
 
     def test_manual_change_becomes_new_start(self) -> None:
         _, held = self._plan(None, 23.0, 1.5)
-        target, held = self._plan(held, 22.0, 1.5)
+        for _ in range(3):
+            target, held = self._plan(held, 22.0, 1.5)
         self.assertIsNone(target)
         self.assertEqual(held["baseline"], 20.5)
 
