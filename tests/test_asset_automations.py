@@ -17,6 +17,7 @@ import unittest
 
 from custom_components.orchestra.blueprint_installer import BUNDLED_BLUEPRINT_DIR, install_blueprints
 from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
+from custom_components.orchestra.heat_pump_control import directive_phase, plan_heat_pump
 from custom_components.orchestra.hvac_drift import plan_drift, plan_mode
 from custom_components.orchestra.safety_guard import InProcessSafetyGuard
 from custom_components.orchestra.sensor import (
@@ -348,3 +349,32 @@ class TestHvacModePlan(unittest.TestCase):
                       turn_on_for_pre=False)[0],
             None,
         )
+
+
+class TestHeatPumpPlan(unittest.TestCase):
+    """Energy Soak switches on, Load Shed switches off, Normal puts back what was there."""
+
+    def test_phase_from_sensor(self) -> None:
+        self.assertEqual(directive_phase({"run_now": True}), "soak")
+        self.assertEqual(directive_phase({"control_signal": "Energy Soak"}), "soak")
+        self.assertEqual(directive_phase({"control_signal": "Load Shed", "action": "NORMAL"}), "shed")
+        self.assertEqual(directive_phase({"control_signal": "Load Shed", "targeted": False}), "normal")
+        self.assertEqual(directive_phase({"control_signal": "Energy Soak", "opted_out": True}), "normal")
+        self.assertEqual(directive_phase({"control_signal": "Normal/Auto"}), "normal")
+
+    def test_first_state_is_kept_across_the_event(self) -> None:
+        before = {"on": False, "temperature": 55.0}
+        apply, held, _ = plan_heat_pump(None, phase="soak", now=before)
+        self.assertEqual((apply, held), ({"on": True}, before))
+        _, held, _ = plan_heat_pump(held, phase="shed", now={"on": True, "temperature": 65.0})
+        self.assertEqual(held, before)
+        apply, held, _ = plan_heat_pump(held, phase="normal", now={"on": False})
+        self.assertEqual((apply, held), (before, None))
+
+    def test_normal_without_an_event_does_nothing(self) -> None:
+        self.assertEqual(plan_heat_pump(None, phase="normal", now={"on": True})[:2], (None, None))
+
+    def test_shed_leaves_setpoint_entity_to_the_power_switch(self) -> None:
+        apply, held, _ = plan_heat_pump(None, phase="shed", now={"on": True}, setpoint_only=True)
+        self.assertIsNone(apply)
+        self.assertEqual(held, {"on": True})

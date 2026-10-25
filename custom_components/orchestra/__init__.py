@@ -49,6 +49,7 @@ try:
     )
     from .blueprint_installer import install_blueprints
     from .coordinator import OrchestraDataUpdateCoordinator
+    from .heat_pump_control import async_setup_heat_pump_control
     from .hvac_drift import async_setup_hvac_drift
     from .safety_guard import InProcessSafetyGuard
 except ImportError:
@@ -80,6 +81,7 @@ except ImportError:
     )
     from custom_components.orchestra.blueprint_installer import install_blueprints
     from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
+    from custom_components.orchestra.heat_pump_control import async_setup_heat_pump_control
     from custom_components.orchestra.hvac_drift import async_setup_hvac_drift
     from custom_components.orchestra.safety_guard import InProcessSafetyGuard
 try:
@@ -262,6 +264,7 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
 
     await _async_install_blueprints(hass)
     await async_setup_hvac_drift(hass)
+    await async_setup_heat_pump_control(hass)
 
     if hasattr(hass, "config_entries") and hasattr(hass.config_entries, "async_forward_entry_setups"):
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

@@ -105,6 +105,28 @@
           "description": "Switch an off unit on for pre-heat or pre-cool, and back off when it ends."
         }
       }
+    },
+    "apply_heat_pump": {
+      "name": "Apply heat pump signal",
+      "description": "Switch heat pumps on for Energy Soak and off for Load Shed, and put each back to what it was doing before on Normal. Safe to call repeatedly.",
+      "fields": {
+        "entity_id": {
+          "name": "Heat pumps",
+          "description": "Water heaters, climates or switches. With a power switch, these only get their temperature set and restored."
+        },
+        "power_switch": {
+          "name": "Power switches",
+          "description": "Entities that switch the heat pumps on and off."
+        },
+        "target_sensor": {
+          "name": "Target sensor",
+          "description": "The Orchestra heat pump target sensor to follow."
+        },
+        "boost_operation_mode": {
+          "name": "Energy Soak operation mode",
+          "description": "Water heater operation mode while soaking."
+        }
+      }
     }
   }
 }

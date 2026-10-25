@@ -26,3 +26,25 @@ apply_hvac_offset:
       default: true
       selector:
         boolean: {}
+apply_heat_pump:
+  fields:
+    entity_id:
+      selector:
+        entity:
+          filter:
+            - domain: [water_heater, climate, switch]
+          multiple: true
+    power_switch:
+      selector:
+        entity:
+          multiple: true
+    target_sensor:
+      default: sensor.orchestra_heat_pump_target_temp
+      selector:
+        entity:
+          filter:
+            - integration: orchestra
+              domain: sensor
+    boost_operation_mode:
+      selector:
+        text: {}
