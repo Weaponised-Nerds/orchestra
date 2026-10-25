@@ -122,14 +122,16 @@ each reading one directive sensor above. Create automations from them in
 
 | Blueprint | Drives | Behaviour |
 | :--- | :--- | :--- |
-| `orchestra_hvac_setpoint_offset.yaml` | `climate` | Remembers the setpoint in a baseline helper when a drift starts, sets baseline + `setpoint_offset_c` on every frame (never compounding), restores and releases the baseline when the offset returns to 0. A shed offset is applied downwards in heat mode. A manual setpoint change mid-event hands control back to the homeowner. |
+| `orchestra_hvac_setpoint_offset.yaml` | `climate` | Drifts from the A/C's current setpoint: each frame moves it by the change in `setpoint_offset_c` (1.5 → 2.0 is +0.5, never compounding), and 0 takes the drift back off. A shed offset is applied downwards in heat mode. Optionally remembers the exact pre-drift setpoint in an `input_number` helper instead. |
 | `orchestra_ev_charge_rate.yaml` | `number` (+ optional `switch`) | Follows `target_amps` within the charger's limits; `0` turns the charging switch off (or drops to the minimum). Returns to your normal current on `NORMAL`. |
 | `orchestra_heat_pump_target.yaml` | `water_heater` | Follows `target_temp_c`, optionally with a run-now operation mode; returns to your normal temperature. |
 | `orchestra_home_battery_reserve.yaml` | `number` (+ optional `switch`) | Holds `min_soc_reserve_pct` and grid charging; returns to your normal reserve on self-consumption. |
 
-The HVAC blueprint needs one `input_number` helper per unit (min `0`, max `40`, step `0.1`;
-`0` means no drift is held). The setup agent creates these; by hand, add them under
-**Settings → Devices & services → Helpers → Number**.
+The HVAC blueprint needs no helper: it works from the unit's live setpoint. The offset
+sensor restores its last value across restarts, so an active drift is never applied
+twice. Picking the optional baseline helper (an `input_number`, min `0`, max `40`, step
+`0.1`) instead remembers the exact setpoint from before the drift, and a manual change
+mid-event then hands control back to the homeowner.
 
 ---
 
@@ -150,7 +152,7 @@ The user never sets up Home Assistant—the **Orchestra Agent** ([`GrandpaCommis
 5. **Stage 5 — Custom Grandpa-Simple Dashboards ([`dashboard_builder.py`](orchestra/agent/dashboard_builder.py))**:
    - Writes `.storage/lovelace` with two clean views (**`My Home`** with a 1-tap *"Pause Grid Saving Event"* button and organized room cards, and **`Energy & Money Saved`** showing daily/monthly AUD savings, VPP cash credits, and verified switchboard circuits) plus pre-configures `.storage/energy`.
 6. **Stage 6 — Guardrailed Automation Commit & Plain-English Handover ([`automation_builder.py`](orchestra/agent/automation_builder.py))**:
-   - Fills the asset blueprints (section 3.5) in with every bound A/C, EV charger, heat pump, and battery reserve, creates each A/C's baseline helper in `.storage/input_number`, and commits the automations to `automations.yaml`.
+   - Fills the asset blueprints (section 3.5) in with every bound A/C, EV charger, heat pump, and battery reserve, and commits the automations to `automations.yaml`.
 
 ---
 

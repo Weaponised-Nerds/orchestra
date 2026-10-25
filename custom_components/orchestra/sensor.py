@@ -52,6 +52,15 @@ except ImportError:
         """Sensor entity fallback."""
         pass
 
+try:
+    from homeassistant.helpers.restore_state import RestoreEntity
+except ImportError:
+    class RestoreEntity:  # type: ignore
+        """Restore entity fallback: nothing to restore outside HA."""
+
+        async def async_get_last_state(self) -> Any:
+            return None
+
 
 async def async_setup_entry(
     hass: Any,
@@ -323,8 +332,14 @@ class _OrchestraAssetDirectiveSensor(OrchestraBaseEntity, SensorEntity):
         }
 
 
-class OrchestraHVACSetpointOffsetSensor(_OrchestraAssetDirectiveSensor):
-    """Setpoint drift (°C) to add to each A/C's own baseline setpoint; 0 means no override."""
+class OrchestraHVACSetpointOffsetSensor(_OrchestraAssetDirectiveSensor, RestoreEntity):
+    """
+    Setpoint drift (°C) to add to each A/C's own setpoint; 0 means no override.
+
+    The HVAC blueprint moves setpoints by the change between consecutive states, so
+    after a restart this reports the last offset until Orchestra's first update.
+    Otherwise a still-active drift would read as 0 -> offset and be applied twice.
+    """
 
     _asset = ASSET_HVAC
 
@@ -333,9 +348,27 @@ class OrchestraHVACSetpointOffsetSensor(_OrchestraAssetDirectiveSensor):
         self._attr_name = "HVAC Setpoint Offset"
         self._attr_native_unit_of_measurement = "°C"
         self._attr_icon = "mdi:thermometer-chevron-up"
+        self._restored_offset: float | None = None
+        self._restored_dispatch_mode: str | None = None
+
+    async def async_added_to_hass(self) -> None:
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            try:
+                self._restored_offset = float(last_state.state)
+                self._restored_dispatch_mode = last_state.attributes.get("dispatch_mode")
+            except (TypeError, ValueError):
+                self._restored_offset = None
+        await super().async_added_to_hass()
+
+    def _handle_coordinator_update(self) -> None:
+        self._restored_offset = None
+        super()._handle_coordinator_update()
 
     @property
     def native_value(self) -> float:
+        if self._restored_offset is not None:
+            return self._restored_offset
         return float(self.coordinator.data.dispatch.ac_setpoint_offset_c)
 
     @property
@@ -343,8 +376,12 @@ class OrchestraHVACSetpointOffsetSensor(_OrchestraAssetDirectiveSensor):
         disp = self.coordinator.data.dispatch
         return {
             **self._common_attributes(disp.ac_dispatch_mode, disp.ac_reason),
-            "dispatch_mode": disp.ac_dispatch_mode,
+            # The blueprint reads dispatch_mode with the value, so restore them together
+            "dispatch_mode": (
+                self._restored_dispatch_mode if self._restored_offset is not None else disp.ac_dispatch_mode
+            ),
             "mode": disp.ac_mode,
+            "restored": self._restored_offset is not None,
         }
 
 

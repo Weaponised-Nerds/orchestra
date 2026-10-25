@@ -321,7 +321,7 @@ recorder:
 
 automation: !include automations.yaml
 
-# UI helpers, e.g. the baseline setpoints the Orchestra HVAC blueprint remembers
+# UI number helpers, e.g. an optional baseline for the Orchestra HVAC blueprint
 input_number:
 """
         yaml_path = self.config.ha_config_dir / "configuration.yaml"
