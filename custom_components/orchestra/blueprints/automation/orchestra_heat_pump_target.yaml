@@ -1,10 +1,16 @@
 blueprint:
-  name: Orchestra - Heat pump hot water from Conductor
+  name: Orchestra - Heat pump from Conductor
   description: >-
-    Sets a heat pump water heater's target temperature from the Conductor
-    `heat_pump` directive (`target_temp_c`, `run_now`), already clamped by Orchestra
-    to its thermal storage guardrail. When the directive returns to the normal
-    schedule the tank goes back to your normal temperature and operation mode.
+    Runs a heat pump from Conductor signals. Energy Soak switches it on and sets the
+    `heat_pump` directive's target temperature (already clamped by Orchestra to its
+    thermal storage guardrail). Load Shed switches it off. Back on Normal it returns
+    to exactly what it was doing before: on or off, and its previous temperature and
+    operation mode.
+
+
+    If the heat pump is switched on and off by a separate entity (a power switch),
+    pick it below: the switch is then turned on and off, and the water heater only
+    has its temperature set and put back.
   domain: automation
   author: Weaponised Nerds
   homeassistant:
@@ -12,29 +18,24 @@ blueprint:
   source_url: https://github.com/Weaponised-Nerds/orchestra/blob/main/custom_components/orchestra/blueprints/automation/orchestra_heat_pump_target.yaml
   input:
     water_heater:
-      name: Heat pump water heater
+      name: Heat pump (water heater, climate or switch)
+      description: The entity that holds the heat pump's target temperature. Leave empty if it only has a power switch.
+      default: ""
       selector:
         entity:
           filter:
-            - domain: water_heater
-    normal_temperature:
-      name: Normal target temperature
-      default: 60
-      selector:
-        number:
-          min: 45
-          max: 70
-          step: 1
-          unit_of_measurement: °C
-    normal_operation_mode:
-      name: Normal operation mode (optional)
-      description: Operation mode for the normal schedule, e.g. "eco". Leave empty to not change it.
+            - domain: [water_heater, climate, switch]
+    power_switch:
+      name: Power switch (optional)
+      description: A separate entity that switches the heat pump on and off.
       default: ""
       selector:
-        text: {}
+        entity:
+          filter:
+            - domain: [switch, input_boolean, climate, water_heater]
     boost_operation_mode:
-      name: Run-now operation mode (optional)
-      description: Operation mode while Conductor asks the heat pump to run now, e.g. "high_demand".
+      name: Energy Soak operation mode (optional)
+      description: Water heater operation mode while soaking, e.g. "high_demand".
       default: ""
       selector:
         text: {}
@@ -46,50 +47,57 @@ blueprint:
           filter:
             - integration: orchestra
               domain: sensor
+    normal_temperature:
+      name: Normal target temperature (no longer used)
+      description: Orchestra now puts back the temperature the heat pump had before the event.
+      default: 60
+      selector:
+        number:
+          min: 45
+          max: 70
+          step: 1
+          unit_of_measurement: °C
+    normal_operation_mode:
+      name: Normal operation mode (no longer used)
+      description: Orchestra now puts back the operation mode the heat pump had before the event.
+      default: ""
+      selector:
+        text: {}
 
 mode: queued
-max: 5
+max: 10
 max_exceeded: silent
 
 triggers:
+  # Any change in the soak setpoint, and every signal change
   - trigger: state
     entity_id: !input target_sensor
     to: null
   - trigger: state
     entity_id: !input target_sensor
     attribute: action
+  - trigger: state
+    entity_id: !input target_sensor
+    attribute: control_signal
+  - trigger: state
+    entity_id: !input target_sensor
+    attribute: run_now
+  # Saving this automation; pick up a signal that is already active
+  - trigger: event
+    event_type: automation_reloaded
+  - trigger: homeassistant
+    event: start
 
 variables:
   water_heater: !input water_heater
-  normal_temperature: !input normal_temperature
-  normal_operation_mode: !input normal_operation_mode
-  boost_operation_mode: !input boost_operation_mode
-  target_sensor: !input target_sensor
-
-conditions:
-  - condition: template
-    value_template: "{{ states(target_sensor) | is_number }}"
+  power_switch: !input power_switch
 
 actions:
-  - variables:
-      is_normal: "{{ state_attr(target_sensor, 'action') | upper == 'NORMAL' }}"
-      run_now: "{{ state_attr(target_sensor, 'run_now') | bool(false) }}"
-      temperature: "{{ normal_temperature if is_normal else states(target_sensor) | float }}"
-      operation_mode: >-
-        {{ normal_operation_mode if is_normal else (boost_operation_mode if run_now else '') }}
-  - if:
-      - condition: template
-        value_template: "{{ operation_mode not in [none, ''] }}"
-    then:
-      - action: water_heater.set_temperature
-        target:
-          entity_id: "{{ water_heater }}"
-        data:
-          temperature: "{{ temperature }}"
-          operation_mode: "{{ operation_mode }}"
-    else:
-      - action: water_heater.set_temperature
-        target:
-          entity_id: "{{ water_heater }}"
-        data:
-          temperature: "{{ temperature }}"
+  # The response (signal phase and what was done) shows in the trace
+  - action: orchestra.apply_heat_pump
+    response_variable: heat_pump
+    data:
+      entity_id: "{{ [water_heater] | reject('in', ['', none]) | list }}"
+      power_switch: "{{ [power_switch] | reject('in', ['', none]) | list }}"
+      target_sensor: !input target_sensor
+      boost_operation_mode: !input boost_operation_mode
