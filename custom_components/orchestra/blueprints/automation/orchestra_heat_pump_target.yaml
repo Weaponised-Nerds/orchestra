@@ -2,8 +2,8 @@ blueprint:
   name: Orchestra - Heat pump from Conductor
   description: >-
     Runs a heat pump from Conductor signals. Energy Soak switches it on and sets the
-    `heat_pump` directive's target temperature (already clamped by Orchestra to its
-    thermal storage guardrail). Load Shed switches it off. Back on Normal it returns
+    `heat_pump` directive's target temperature, kept within the heat pump's own
+    min/max (a pool heat pump that tops out at 30 °C gets 30). Load Shed switches it off. Back on Normal it returns
     to exactly what it was doing before: on or off, and its previous temperature and
     operation mode.
 
@@ -35,7 +35,9 @@ blueprint:
             - domain: [switch, input_boolean, climate, water_heater]
     boost_operation_mode:
       name: Energy Soak operation mode (optional)
-      description: Water heater operation mode while soaking, e.g. "high_demand".
+      description: >-
+        Water heater operation mode while soaking, e.g. "high_demand" or "boost". Must
+        be one of the heater's own modes; case doesn't matter.
       default: ""
       selector:
         text: {}
@@ -58,8 +60,11 @@ blueprint:
           step: 1
           unit_of_measurement: °C
     normal_operation_mode:
-      name: Normal operation mode (no longer used)
-      description: Orchestra now puts back the operation mode the heat pump had before the event.
+      name: Normal operation mode (optional)
+      description: >-
+        Orchestra puts back the operation mode the heat pump had before the event. If
+        your heater doesn't report its mode (e.g. localtuya), this mode is used instead.
+        Must be one of the heater's own modes; case doesn't matter.
       default: ""
       selector:
         text: {}
@@ -101,3 +106,4 @@ actions:
       power_switch: "{{ [power_switch] | reject('in', ['', none]) | list }}"
       target_sensor: !input target_sensor
       boost_operation_mode: !input boost_operation_mode
+      normal_operation_mode: !input normal_operation_mode

@@ -479,3 +479,31 @@ async def test_heat_pump_water_heater_alone_is_switched_and_restored(hass, tmp_p
     await _hp_signal(hass, "Normal/Auto", 60.0)
     assert hass.states.get(WATER_HEATER).state == "off"
     assert hass.states.get(WATER_HEATER).attributes["temperature"] == 52
+
+
+async def test_localtuya_pool_heat_pump_gets_its_temperatures(hass, tmp_path) -> None:
+    """localtuya water heaters sit at 'unknown' with no operation_mode, yet take temperatures."""
+    hass.states.async_set(
+        WATER_HEATER, "unknown",
+        {"temperature": 26, "min_temp": 20, "max_temp": 30, "operation_mode": None,
+         "operation_list": ["boost", "silence", "Off"]},
+    )
+    hass.states.async_set(HP_POWER, "off")
+    await _heat_pump_setup(hass, tmp_path, {
+        "water_heater": WATER_HEATER, "power_switch": HP_POWER,
+        "boost_operation_mode": "Boost", "normal_operation_mode": "Silence",
+    })
+
+    await _hp_signal(hass, "Energy Soak", 65.0, run_now=True)
+    assert hass.states.get(HP_POWER).state == "on"
+    # Clamped to the pool heat pump's own maximum, in its own spelling of the mode
+    assert hass.states.get(WATER_HEATER).attributes["temperature"] == 30
+    assert hass.states.get(WATER_HEATER).attributes["operation_mode"] == "boost"
+
+    await _hp_signal(hass, "Load Shed", 50.0)
+    assert hass.states.get(HP_POWER).state == "off"
+
+    await _hp_signal(hass, "Normal/Auto", 60.0)
+    assert hass.states.get(HP_POWER).state == "off"
+    assert hass.states.get(WATER_HEATER).attributes["temperature"] == 26
+    assert hass.states.get(WATER_HEATER).attributes["operation_mode"] == "silence"

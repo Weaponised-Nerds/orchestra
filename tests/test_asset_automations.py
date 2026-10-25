@@ -17,7 +17,12 @@ import unittest
 
 from custom_components.orchestra.blueprint_installer import BUNDLED_BLUEPRINT_DIR, install_blueprints
 from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
-from custom_components.orchestra.heat_pump_control import directive_phase, plan_heat_pump
+from custom_components.orchestra.heat_pump_control import (
+    clamp_temperature,
+    directive_phase,
+    match_operation_mode,
+    plan_heat_pump,
+)
 from custom_components.orchestra.hvac_drift import plan_drift, plan_mode
 from custom_components.orchestra.safety_guard import InProcessSafetyGuard
 from custom_components.orchestra.sensor import (
@@ -378,3 +383,12 @@ class TestHeatPumpPlan(unittest.TestCase):
         apply, held, _ = plan_heat_pump(None, phase="shed", now={"on": True}, setpoint_only=True)
         self.assertIsNone(apply)
         self.assertEqual(held, {"on": True})
+
+    def test_targets_fit_the_unit(self) -> None:
+        pool = {"min_temp": 20, "max_temp": 30, "operation_list": ["boost", "silence", "Off"]}
+        self.assertEqual(clamp_temperature(65.0, pool), 30)
+        self.assertEqual(clamp_temperature(10.0, pool), 20)
+        self.assertEqual(clamp_temperature(65.0, {}), 65.0)
+        self.assertEqual(match_operation_mode("Boost", pool), "boost")
+        self.assertIsNone(match_operation_mode("Eco", pool))
+        self.assertEqual(match_operation_mode("eco", {}), "eco")
