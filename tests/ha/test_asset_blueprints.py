@@ -294,3 +294,31 @@ async def test_ev_switch_only_toggled_when_needed(hass, setup) -> None:
     hass.states.async_set(AMPS, "10", {"action": "CHARGE_NOW"})
     await hass.async_block_till_done()
     assert [c.service for c in calls[-1:]] == ["set_value"]
+
+
+async def test_hvac_drifts_a_unit_reporting_string_setpoints(hass, tmp_path) -> None:
+    """AirTouch reports temperature, min/max and step as strings like '21'."""
+    hass.config.config_dir = str(tmp_path)
+    await hass.async_add_executor_job(install_blueprints, tmp_path)
+    await async_setup_hvac_drift(hass)
+
+    async def climate_set_temperature(call: ServiceCall) -> None:
+        state = hass.states.get(CLIMATE)
+        hass.states.async_set(CLIMATE, state.state, {**state.attributes, "temperature": str(call.data["temperature"])})
+
+    hass.services.async_register("climate", "set_temperature", climate_set_temperature)
+    hass.states.async_set(
+        CLIMATE, "heat", {"temperature": "21", "min_temp": "16", "max_temp": "30", "target_temp_step": "1"}
+    )
+    _set_offset(hass, 0.0, "idle")
+    assert await async_setup_component(
+        hass,
+        "automation",
+        {"automation": [{"id": "gf", "use_blueprint": {
+            "path": blueprint_path(BLUEPRINT_HVAC_SETPOINT_OFFSET), "input": {"climate_entity": CLIMATE}}}]},
+    )
+    await hass.async_block_till_done()
+    await _offset(hass, 2.0)  # shed while heating drifts down
+    assert float(_setpoint(hass)) == 19.0
+    await _offset(hass, 0.0)
+    assert float(_setpoint(hass)) == 21.0

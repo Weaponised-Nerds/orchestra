@@ -28,6 +28,14 @@ DEFAULT_OFFSET_SENSOR = "sensor.orchestra_hvac_setpoint_offset"
 UNAVAILABLE_STATES = ("unavailable", "unknown")
 
 
+def _as_float(value: Any, default: float | None = None) -> float | None:
+    """Some integrations (AirTouch) report setpoint attributes as strings like '21'."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _round_clamp(value: float, step: float, min_temp: float, max_temp: float) -> float:
     return round(min(max(round(value / step) * step, min_temp), max_temp), 2)
 
@@ -145,17 +153,16 @@ class HvacDriftController:
         if climate is None:
             return {"reason": "entity not found"}
         attrs = climate.attributes
-        current = attrs.get("temperature")
-        current = float(current) if isinstance(current, (int, float)) else None
+        current = _as_float(attrs.get("temperature"))
         target, held, reason = plan_drift(
             self._held.get(entity_id),
             current=current,
             hvac_mode=climate.state,
             offset=offset,
             dispatch_mode=offset_attrs.get("dispatch_mode"),
-            step=attrs.get("target_temp_step"),
-            min_temp=float(attrs.get("min_temp", 7)),
-            max_temp=float(attrs.get("max_temp", 35)),
+            step=_as_float(attrs.get("target_temp_step")),
+            min_temp=_as_float(attrs.get("min_temp"), 7.0),
+            max_temp=_as_float(attrs.get("max_temp"), 35.0),
             invert_shed_when_heating=call.data.get("invert_shed_when_heating", True),
             skip_when_off=call.data.get("skip_when_off", True),
         )
