@@ -766,12 +766,16 @@ class OrchestraDataUpdateCoordinator:
         disp.ac_preheat = False
         disp.ac_setpoint_offset_c = 0.0
         disp.ac_dispatch_mode = "idle"
+        disp.ac_mode = "auto"
         disp.ac_reason = "WAN offline; standard comfort setpoint"
 
         # Battery: self-consume
         disp.home_battery_storm_watch = False
+        disp.battery_min_reserve_soc_pct = 20.0
+        disp.battery_charge_from_grid = False
         disp.battery_action = "SELF_CONSUME"
         disp.battery_reason = "WAN offline; standard self-consumption"
+        disp.excluded_assets = []
 
         self.async_update_listeners()
 
@@ -793,16 +797,10 @@ class OrchestraDataUpdateCoordinator:
         disp.control_signal = SIGNAL_OPT_OUT
         disp.signal_source = "opt_out"
         disp.reason = "Customer 1-tap opt-out active. All demand-response overrides disabled."
-        disp.ev_charge_now = False
-        disp.ev_action = "NORMAL"
-        disp.heat_pump_run_now = False
-        disp.heat_pump_action = "NORMAL"
-        disp.ac_precool = False
-        disp.ac_preheat = False
-        disp.ac_setpoint_offset_c = 0.0
-        disp.ac_dispatch_mode = "idle"
-        disp.home_battery_storm_watch = False
-        disp.battery_action = "NORMAL"
+        # Every asset returns to its standard schedule, so asset automations restore baselines
+        for asset in (ASSET_EV, ASSET_HEAT_PUMP, ASSET_HVAC, ASSET_HOME_BATTERY):
+            self._apply_asset_normal(asset, "Customer opt-out active; standard schedule")
+        disp.excluded_assets = []
 
     def set_manual_dispatch_mode(self, mode: str) -> None:
         """Manual override from UI select entity for field testing."""
@@ -818,6 +816,7 @@ class OrchestraDataUpdateCoordinator:
 
         if mode == SIGNAL_ENERGY_SOAK:
             disp.ev_charge_now = True
+            disp.ev_target_amps = 16
             disp.heat_pump_run_now = True
             disp.ac_precool = True
             disp.ac_setpoint_offset_c = -1.5
@@ -825,6 +824,7 @@ class OrchestraDataUpdateCoordinator:
             disp.home_battery_storm_watch = False
         elif mode == SIGNAL_LOAD_SHED:
             disp.ev_charge_now = False
+            disp.ev_target_amps = 0
             disp.heat_pump_run_now = False
             disp.ac_precool = False
             disp.ac_setpoint_offset_c = 1.5
@@ -832,6 +832,7 @@ class OrchestraDataUpdateCoordinator:
             disp.home_battery_storm_watch = False
         else:
             disp.ev_charge_now = False
+            disp.ev_target_amps = 16
             disp.heat_pump_run_now = False
             disp.ac_precool = False
             disp.ac_setpoint_offset_c = 0.0

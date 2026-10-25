@@ -1,0 +1,114 @@
+blueprint:
+  name: Orchestra - EV charge rate from Conductor
+  description: >-
+    Sets an EV charger's current from the Conductor `ev` directive
+    (`target_amps`, `charge_now`, `enabled`).
+
+
+    0 A pauses charging: the charging switch is turned off if you pick one,
+    otherwise the current is dropped to the charger's minimum. Any other value is
+    applied within the charger's own limits and charging is resumed. When the
+    directive returns to the normal schedule (including outside this home's
+    tranche, opt-out and WAN fallback) the charger goes back to your normal current.
+  domain: automation
+  author: Weaponised Nerds
+  homeassistant:
+    min_version: "2024.10.0"
+  source_url: https://github.com/Weaponised-Nerds/orchestra/blob/main/custom_components/orchestra/blueprints/automation/orchestra_ev_charge_rate.yaml
+  input:
+    charger_current:
+      name: Charger current limit
+      description: The number entity that sets the charging current in amps.
+      selector:
+        entity:
+          filter:
+            - domain: number
+    charger_switch:
+      name: Charging switch (optional)
+      description: A switch that starts and stops charging. Leave empty if the charger has none.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: switch
+    normal_amps:
+      name: Normal charging current
+      description: The current to return to when Conductor hands back the normal schedule.
+      default: 16
+      selector:
+        number:
+          min: 6
+          max: 32
+          step: 1
+          unit_of_measurement: A
+    amps_sensor:
+      name: Orchestra EV target amps sensor
+      default: sensor.orchestra_ev_target_amps
+      selector:
+        entity:
+          filter:
+            - integration: orchestra
+              domain: sensor
+
+mode: queued
+max: 5
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input amps_sensor
+    to: null
+  # The same current can come with a different action, e.g. CHARGE_NOW -> NORMAL
+  - trigger: state
+    entity_id: !input amps_sensor
+    attribute: action
+
+variables:
+  charger_current: !input charger_current
+  charger_switch: !input charger_switch
+  normal_amps: !input normal_amps
+  amps_sensor: !input amps_sensor
+
+conditions:
+  - condition: template
+    value_template: "{{ states(amps_sensor) | is_number }}"
+
+actions:
+  - variables:
+      directive_amps: "{{ states(amps_sensor) | int(0) }}"
+      is_normal: "{{ state_attr(amps_sensor, 'action') | upper == 'NORMAL' }}"
+      wanted: "{{ normal_amps | int if is_normal else directive_amps }}"
+      min_amps: "{{ state_attr(charger_current, 'min') | float(6) }}"
+      max_amps: "{{ state_attr(charger_current, 'max') | float(32) }}"
+      has_switch: "{{ charger_switch not in [none, ''] }}"
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ wanted == 0 }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ has_switch }}"
+            then:
+              - action: switch.turn_off
+                target:
+                  entity_id: "{{ charger_switch }}"
+            else:
+              - action: number.set_value
+                target:
+                  entity_id: "{{ charger_current }}"
+                data:
+                  value: "{{ min_amps }}"
+    default:
+      - action: number.set_value
+        target:
+          entity_id: "{{ charger_current }}"
+        data:
+          value: "{{ [[wanted, min_amps] | max, max_amps] | min }}"
+      - if:
+          - condition: template
+            value_template: "{{ has_switch }}"
+        then:
+          - action: switch.turn_on
+            target:
+              entity_id: "{{ charger_switch }}"

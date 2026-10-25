@@ -26,6 +26,7 @@ from orchestra.agent.circuit_identifier import (
     CircuitProbeReport,
     UnidentifiedPowerChannel,
 )
+from orchestra.agent.automation_builder import AssetAutomationPlan, ConductorAutomationBuilder
 from orchestra.agent.dashboard_builder import GrandpaDashboardBuilder
 from orchestra.agent.dr_binder import ConductorBindingManifest, ConductorEntityBinder
 from orchestra.agent.entity_organizer import OrganizedEntityRecord, SemanticEntityOrganizer
@@ -87,6 +88,7 @@ class AutonomousCommissioningResult:
     dashboard_summary: dict[str, Any]
     contract_id: str
     agent_conversation_log: list[AgentTurnLog]
+    asset_automation_plan: AssetAutomationPlan | None = None
 
 
 class GrandpaCommissioningAgent:
@@ -103,6 +105,7 @@ class GrandpaCommissioningAgent:
         self.entity_organizer = SemanticEntityOrganizer(engine.storage_injector)
         self.dr_binder = ConductorEntityBinder(engine.storage_injector)
         self.dashboard_builder = GrandpaDashboardBuilder(engine.storage_injector)
+        self.automation_builder = ConductorAutomationBuilder(engine.storage_injector)
 
     @staticmethod
     def get_llm_tool_schemas() -> list[dict[str, Any]]:
@@ -315,7 +318,14 @@ class GrandpaCommissioningAgent:
         # ---------------------------------------------------------------------
         # STAGE 6: Commit Guardrailed Automations & Complete Handover
         # ---------------------------------------------------------------------
-        contract = await self.engine.agent_tools.generate_household_load_contract(prefs)
+        # Each bound asset gets a blueprint automation following its Conductor directive
+        asset_plan = self.automation_builder.build_asset_automations(
+            dr_manifest=conductor_manifest,
+            organized_entities=organized_records,
+        )
+        contract = await self.engine.agent_tools.generate_household_load_contract(
+            prefs, asset_automations=asset_plan.automations
+        )
         await self.engine.agent_tools.commit_automations_to_node(contract)
         completed.append(CommissioningStage.STAGE_6_AUTOMATION_COMMIT_AND_HANDOVER)
         turns.append(
@@ -326,7 +336,11 @@ class GrandpaCommissioningAgent:
                     f"All done! Your home is now saving an estimated ${contract.estimated_monthly_savings_aud:.2f}/month "
                     "automatically. You don't need to touch a thing."
                 ),
-                technical_summary={"contract_id": contract.contract_id},
+                technical_summary={
+                    "contract_id": contract.contract_id,
+                    "asset_automations": [a["id"] for a in asset_plan.automations],
+                    "baseline_helpers": [h["id"] for h in asset_plan.helpers],
+                },
             )
         )
 
@@ -340,4 +354,5 @@ class GrandpaCommissioningAgent:
             dashboard_summary=dashboard_summary,
             contract_id=contract.contract_id,
             agent_conversation_log=turns,
+            asset_automation_plan=asset_plan,
         )

@@ -37,6 +37,18 @@
       },
       "accumulated_dividend_aud": {
         "name": "Homeowner Load-Shed Dividend"
+      },
+      "hvac_setpoint_offset": {
+        "name": "HVAC Setpoint Offset"
+      },
+      "ev_target_amps": {
+        "name": "EV Target Amps"
+      },
+      "heat_pump_target_temp": {
+        "name": "Heat Pump Target Temperature"
+      },
+      "home_battery_min_reserve": {
+        "name": "Home Battery Minimum Reserve"
       }
     },
     "binary_sensor": {

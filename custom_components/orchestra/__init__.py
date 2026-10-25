@@ -47,6 +47,7 @@ try:
         INTERCEPTED_CLOUD_FLOW_DOMAINS,
         PLATFORMS,
     )
+    from .blueprint_installer import install_blueprints
     from .coordinator import OrchestraDataUpdateCoordinator
     from .safety_guard import InProcessSafetyGuard
 except ImportError:
@@ -76,6 +77,7 @@ except ImportError:
         INTERCEPTED_CLOUD_FLOW_DOMAINS,
         PLATFORMS,
     )
+    from custom_components.orchestra.blueprint_installer import install_blueprints
     from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
     from custom_components.orchestra.safety_guard import InProcessSafetyGuard
 try:
@@ -97,6 +99,20 @@ def _safe_async_create_task(hass: Any, coro: Any) -> Any:
         return loop.create_task(coro)
     except RuntimeError:
         return None
+
+
+async def _async_install_blueprints(hass: Any) -> None:
+    """Copy the bundled asset automation blueprints into `<config>/blueprints/automation/orchestra`."""
+    config_dir = getattr(getattr(hass, "config", None), "config_dir", None)
+    if not isinstance(config_dir, str) or not hasattr(hass, "async_add_executor_job"):
+        return
+    try:
+        written = await hass.async_add_executor_job(install_blueprints, config_dir)
+    except OSError as err:
+        _LOGGER.warning("Could not install Orchestra automation blueprints: %s", err)
+        return
+    if written:
+        _LOGGER.info("Installed Orchestra automation blueprints: %s", [p.name for p in written])
 
 
 async def async_setup(hass: Any, config: dict[str, Any]) -> bool:
@@ -241,6 +257,8 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
 
         _safe_async_create_task(hass, coordinator.async_start())
         _safe_async_create_task(hass, subscriber.async_start())
+
+    await _async_install_blueprints(hass)
 
     if hasattr(hass, "config_entries") and hasattr(hass.config_entries, "async_forward_entry_setups"):
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

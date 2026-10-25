@@ -69,6 +69,13 @@ SENSOR_WEM_WHOLESALE_PRICE = "wem_wholesale_price"
 SENSOR_WEM_RENEWABLE_AVAILABILITY = "wem_renewable_availability"
 SENSOR_CONDUCTOR_CONTROL_SIGNAL = "conductor_control_signal"
 
+# Per-asset directive sensors: already cohort-gated, clamped and reset on opt-out, so
+# asset automations (blueprints/automation/orchestra) can consume them directly
+SENSOR_HVAC_SETPOINT_OFFSET = "hvac_setpoint_offset"
+SENSOR_EV_TARGET_AMPS = "ev_target_amps"
+SENSOR_HEAT_PUMP_TARGET_TEMP = "heat_pump_target_temp"
+SENSOR_HOME_BATTERY_MIN_RESERVE = "home_battery_min_reserve"
+
 BINARY_SENSOR_EV_CHARGE_NOW = "ev_charge_now"
 BINARY_SENSOR_HEAT_PUMP_RUN_NOW = "heat_pump_run_now"
 BINARY_SENSOR_AC_PRECOOL = "ac_precool"

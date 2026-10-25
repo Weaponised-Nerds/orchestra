@@ -1,0 +1,90 @@
+blueprint:
+  name: Orchestra - Home battery reserve from Conductor
+  description: >-
+    Holds a home battery's backup reserve and grid charging from the Conductor
+    `home_battery` directive (`min_soc_reserve_pct`, `charge_from_grid`,
+    `storm_watch`). When the directive returns to self-consumption the battery goes
+    back to your normal reserve and grid charging is switched off.
+  domain: automation
+  author: Weaponised Nerds
+  homeassistant:
+    min_version: "2024.10.0"
+  source_url: https://github.com/Weaponised-Nerds/orchestra/blob/main/custom_components/orchestra/blueprints/automation/orchestra_home_battery_reserve.yaml
+  input:
+    reserve_number:
+      name: Backup reserve
+      description: The number entity that sets the battery's minimum state of charge (%).
+      selector:
+        entity:
+          filter:
+            - domain: number
+    grid_charge_switch:
+      name: Grid charging switch (optional)
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: switch
+    normal_reserve:
+      name: Normal backup reserve
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+    reserve_sensor:
+      name: Orchestra battery reserve sensor
+      default: sensor.orchestra_home_battery_min_reserve
+      selector:
+        entity:
+          filter:
+            - integration: orchestra
+              domain: sensor
+
+mode: queued
+max: 5
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input reserve_sensor
+    to: null
+  - trigger: state
+    entity_id: !input reserve_sensor
+    attribute: action
+  - trigger: state
+    entity_id: !input reserve_sensor
+    attribute: charge_from_grid
+
+variables:
+  reserve_number: !input reserve_number
+  grid_charge_switch: !input grid_charge_switch
+  normal_reserve: !input normal_reserve
+  reserve_sensor: !input reserve_sensor
+
+conditions:
+  - condition: template
+    value_template: "{{ states(reserve_sensor) | is_number }}"
+
+actions:
+  - variables:
+      is_normal: >-
+        {{ state_attr(reserve_sensor, 'action') | upper in ['NORMAL', 'SELF_CONSUME'] }}
+      reserve: "{{ normal_reserve if is_normal else states(reserve_sensor) | float }}"
+      grid_charge: "{{ not is_normal and state_attr(reserve_sensor, 'charge_from_grid') | bool(false) }}"
+      min_pct: "{{ state_attr(reserve_number, 'min') | float(0) }}"
+      max_pct: "{{ state_attr(reserve_number, 'max') | float(100) }}"
+  - action: number.set_value
+    target:
+      entity_id: "{{ reserve_number }}"
+    data:
+      value: "{{ [[reserve, min_pct] | max, max_pct] | min }}"
+  - if:
+      - condition: template
+        value_template: "{{ grid_charge_switch not in [none, ''] }}"
+    then:
+      - action: "switch.turn_{{ 'on' if grid_charge else 'off' }}"
+        target:
+          entity_id: "{{ grid_charge_switch }}"

@@ -1,0 +1,95 @@
+blueprint:
+  name: Orchestra - Heat pump hot water from Conductor
+  description: >-
+    Sets a heat pump water heater's target temperature from the Conductor
+    `heat_pump` directive (`target_temp_c`, `run_now`), already clamped by Orchestra
+    to its thermal storage guardrail. When the directive returns to the normal
+    schedule the tank goes back to your normal temperature and operation mode.
+  domain: automation
+  author: Weaponised Nerds
+  homeassistant:
+    min_version: "2024.10.0"
+  source_url: https://github.com/Weaponised-Nerds/orchestra/blob/main/custom_components/orchestra/blueprints/automation/orchestra_heat_pump_target.yaml
+  input:
+    water_heater:
+      name: Heat pump water heater
+      selector:
+        entity:
+          filter:
+            - domain: water_heater
+    normal_temperature:
+      name: Normal target temperature
+      default: 60
+      selector:
+        number:
+          min: 45
+          max: 70
+          step: 1
+          unit_of_measurement: °C
+    normal_operation_mode:
+      name: Normal operation mode (optional)
+      description: Operation mode for the normal schedule, e.g. "eco". Leave empty to not change it.
+      default: ""
+      selector:
+        text: {}
+    boost_operation_mode:
+      name: Run-now operation mode (optional)
+      description: Operation mode while Conductor asks the heat pump to run now, e.g. "high_demand".
+      default: ""
+      selector:
+        text: {}
+    target_sensor:
+      name: Orchestra heat pump target sensor
+      default: sensor.orchestra_heat_pump_target_temp
+      selector:
+        entity:
+          filter:
+            - integration: orchestra
+              domain: sensor
+
+mode: queued
+max: 5
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input target_sensor
+    to: null
+  - trigger: state
+    entity_id: !input target_sensor
+    attribute: action
+
+variables:
+  water_heater: !input water_heater
+  normal_temperature: !input normal_temperature
+  normal_operation_mode: !input normal_operation_mode
+  boost_operation_mode: !input boost_operation_mode
+  target_sensor: !input target_sensor
+
+conditions:
+  - condition: template
+    value_template: "{{ states(target_sensor) | is_number }}"
+
+actions:
+  - variables:
+      is_normal: "{{ state_attr(target_sensor, 'action') | upper == 'NORMAL' }}"
+      run_now: "{{ state_attr(target_sensor, 'run_now') | bool(false) }}"
+      temperature: "{{ normal_temperature if is_normal else states(target_sensor) | float }}"
+      operation_mode: >-
+        {{ normal_operation_mode if is_normal else (boost_operation_mode if run_now else '') }}
+  - if:
+      - condition: template
+        value_template: "{{ operation_mode not in [none, ''] }}"
+    then:
+      - action: water_heater.set_temperature
+        target:
+          entity_id: "{{ water_heater }}"
+        data:
+          temperature: "{{ temperature }}"
+          operation_mode: "{{ operation_mode }}"
+    else:
+      - action: water_heater.set_temperature
+        target:
+          entity_id: "{{ water_heater }}"
+        data:
+          temperature: "{{ temperature }}"
