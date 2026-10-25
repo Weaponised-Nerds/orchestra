@@ -5,7 +5,7 @@ Fills in the bundled Orchestra blueprints (`custom_components/orchestra/blueprin
 with the asset entities the DR binder found, so every bound HVAC unit, EV charger,
 heat pump and home battery follows its Conductor `granular_assets` directive:
 
-- HVAC: setpoint drifts by `setpoint_offset_c` from a remembered baseline, then restores.
+- HVAC: setpoint drifts by `setpoint_offset_c` from the A/C's current setpoint, then back.
 - EV: charger current follows `target_amps` (0 pauses), then returns to normal.
 - Heat pump: tank target follows `target_temp_c`, then returns to normal.
 - Home battery: backup reserve follows `min_soc_reserve_pct`, then returns to normal.
@@ -16,7 +16,6 @@ The directive sensors these read are already tranche (cohort) gated by the integ
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import json
 import re
 from typing import Any
 
@@ -44,10 +43,9 @@ BATTERY_RESERVE_PATTERN = re.compile(r"^number\..*(backup_reserve|reserve_soc|mi
 
 @dataclass
 class AssetAutomationPlan:
-    """Automations and helpers generated for the bound Conductor assets."""
+    """Automations generated for the bound Conductor assets."""
 
     automations: list[dict[str, Any]] = field(default_factory=list)
-    helpers: list[dict[str, Any]] = field(default_factory=list)
     blueprints_installed: list[str] = field(default_factory=list)
 
 
@@ -67,8 +65,7 @@ class ConductorAutomationBuilder:
         organized_entities: list[OrganizedEntityRecord],
     ) -> AssetAutomationPlan:
         """
-        Install the blueprints, create baseline helpers, and return automations that
-        use the blueprints. Committing them to `automations.yaml` is left to Stage 6.
+        Install the blueprints and return automations that use them. Committing them to `automations.yaml` is left to Stage 6.
         """
         config_dir = self.storage_injector.config.ha_config_dir
         plan = AssetAutomationPlan(
@@ -81,25 +78,12 @@ class ConductorAutomationBuilder:
         for load in dr_manifest.controllable_loads:
             eid = load.control_entity_id
             if load.load_category == "hvac":
-                helper_id = f"orchestra_baseline_{_object_id(eid)}"
-                plan.helpers.append(
-                    {
-                        "id": helper_id,
-                        "name": f"{load.sensible_name} baseline setpoint",
-                        "min": 0.0,
-                        "max": 40.0,
-                        "step": 0.1,
-                        "mode": "box",
-                        "unit_of_measurement": "°C",
-                        "icon": "mdi:thermometer-check",
-                    }
-                )
                 plan.automations.append(
                     self._automation(
                         f"orchestra_hvac_offset_{_object_id(eid)}",
                         f"Orchestra: {load.sensible_name} follows Conductor setpoint offset",
                         BLUEPRINT_HVAC_SETPOINT_OFFSET,
-                        {"climate_entity": eid, "baseline_helper": f"input_number.{helper_id}"},
+                        {"climate_entity": eid},
                     )
                 )
             elif load.load_category == "ev_charger":
@@ -142,8 +126,6 @@ class ConductorAutomationBuilder:
                     )
                 )
 
-        if plan.helpers:
-            self._upsert_input_number_helpers(plan.helpers)
         return plan
 
     @staticmethod
@@ -173,26 +155,3 @@ class ConductorAutomationBuilder:
             if f"switch.{slug}{switch_suffix}" in known_ids:
                 return f"switch.{slug}{switch_suffix}"
         return None
-
-    def _upsert_input_number_helpers(self, helpers: list[dict[str, Any]]) -> None:
-        """Create UI-managed `input_number` helpers, keeping any existing items and values."""
-        path = self.storage_injector.storage_dir / "input_number"
-        if path.exists():
-            doc = json.loads(path.read_text(encoding="utf-8"))
-        else:
-            doc = {"version": 1, "minor_version": 1, "key": "input_number", "data": {"items": []}}
-        items = doc["data"].setdefault("items", [])
-        existing = {item.get("id") for item in items}
-        items.extend(h for h in helpers if h["id"] not in existing)
-        path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
-        self._ensure_input_number_loaded()
-
-    def _ensure_input_number_loaded(self) -> None:
-        """Helpers in `.storage/input_number` only load when the integration is set up."""
-        yaml_path = self.storage_injector.config.ha_config_dir / "configuration.yaml"
-        if not yaml_path.exists():
-            return
-        text = yaml_path.read_text(encoding="utf-8")
-        if re.search(r"^(default_config|input_number):", text, re.MULTILINE):
-            return
-        yaml_path.write_text(text.rstrip("\n") + "\n\ninput_number:\n", encoding="utf-8")

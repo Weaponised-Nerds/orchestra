@@ -339,7 +339,6 @@ class GrandpaCommissioningAgent:
                 technical_summary={
                     "contract_id": contract.contract_id,
                     "asset_automations": [a["id"] for a in asset_plan.automations],
-                    "baseline_helpers": [h["id"] for h in asset_plan.helpers],
                 },
             )
         )

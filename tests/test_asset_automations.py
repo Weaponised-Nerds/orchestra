@@ -134,6 +134,30 @@ class TestAssetDirectiveSensors(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.battery.native_value, 20.0)
         self.assertTrue(self.ev.extra_state_attributes["opted_out"])
 
+    async def test_hvac_offset_restores_last_value_until_first_update(self) -> None:
+        """After a restart the blueprint must not see a still-active drift as 0 -> offset."""
+
+        class _LastState:
+            state = "1.5"
+            attributes = {"dispatch_mode": "shed"}
+
+        async def _last_state():
+            return _LastState()
+
+        self.hvac.async_get_last_state = _last_state
+        self.hvac.async_write_ha_state = lambda: None
+        await self.hvac.async_added_to_hass()
+        self.assertEqual(self.hvac.native_value, 1.5)
+        self.assertEqual(self.hvac.extra_state_attributes["dispatch_mode"], "shed")
+        self.assertTrue(self.hvac.extra_state_attributes["restored"])
+
+        self.coordinator.apply_conductor_dispatch(VPP_FRAME)
+        self.assertEqual(self.hvac.native_value, 1.5)
+        self.assertFalse(self.hvac.extra_state_attributes["restored"])
+
+        self.coordinator.set_opt_out(True)
+        self.assertEqual(self.hvac.native_value, 0.0)
+
     def test_manual_load_shed_pauses_ev(self) -> None:
         self.coordinator.set_manual_dispatch_mode("Load Shed")
         self.assertEqual(self.ev.native_value, 0)
@@ -159,7 +183,6 @@ class TestBlueprintInstallAndAgentAutomations(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(install_blueprints(self.config_dir), [written[0]])
 
     def test_builder_fills_blueprints_with_bound_assets(self) -> None:
-        (self.config_dir / "configuration.yaml").write_text("automation: !include automations.yaml\n")
         manifest = ConductorBindingManifest(
             bound_at="now",
             controllable_loads=[
@@ -186,10 +209,7 @@ class TestBlueprintInstallAndAgentAutomations(unittest.IsolatedAsyncioTestCase):
             by_id["orchestra_hvac_offset_lounge_ac"],
             {
                 "path": "orchestra/orchestra_hvac_setpoint_offset.yaml",
-                "input": {
-                    "climate_entity": "climate.lounge_ac",
-                    "baseline_helper": "input_number.orchestra_baseline_lounge_ac",
-                },
+                "input": {"climate_entity": "climate.lounge_ac"},
             },
         )
         # One automation per charger, with its charging switch found by name
@@ -202,11 +222,8 @@ class TestBlueprintInstallAndAgentAutomations(unittest.IsolatedAsyncioTestCase):
             {"reserve_number": "number.powerwall_backup_reserve"},
         )
 
-        helpers = json.loads((self.config_dir / ".storage" / "input_number").read_text())
-        self.assertEqual(
-            [h["id"] for h in helpers["data"]["items"]], ["orchestra_baseline_lounge_ac"]
-        )
-        self.assertIn("input_number:", (self.config_dir / "configuration.yaml").read_text())
+        # Drifting from the live setpoint needs no helper
+        self.assertFalse((self.config_dir / ".storage" / "input_number").exists())
         for name in ("orchestra_hvac_setpoint_offset.yaml", "orchestra_ev_charge_rate.yaml"):
             self.assertTrue((self.config_dir / "blueprints" / "automation" / "orchestra" / name).exists())
 
@@ -225,11 +242,7 @@ class TestBlueprintInstallAndAgentAutomations(unittest.IsolatedAsyncioTestCase):
                 "orchestra/orchestra_home_battery_reserve.yaml",
             },
         )
-        # Every HVAC automation has its own baseline helper
-        helper_ids = {
-            h["id"] for h in json.loads((self.config_dir / ".storage" / "input_number").read_text())["data"]["items"]
-        }
-        for a in automations:
-            helper = a["use_blueprint"]["input"].get("baseline_helper")
-            if helper:
-                self.assertIn(helper.split(".", 1)[1], helper_ids)
+        hvac = [a for a in automations if a["id"].startswith("orchestra_hvac_offset_")]
+        self.assertTrue(hvac)
+        for a in hvac:
+            self.assertEqual(set(a["use_blueprint"]["input"]), {"climate_entity"})
