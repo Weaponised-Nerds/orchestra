@@ -349,3 +349,38 @@ async def test_hvac_drifts_every_selected_zone(hass, tmp_path) -> None:
     assert (_setpoint(hass), _setpoint(hass, BEDROOM)) == (19.5, 20.5)
     await _offset(hass, 0.0)
     assert (_setpoint(hass), _setpoint(hass, BEDROOM)) == (21.0, 22.0)
+
+
+async def test_preheat_switches_an_off_unit_on_and_back(hass, tmp_path) -> None:
+    hass.config.config_dir = str(tmp_path)
+    await hass.async_add_executor_job(install_blueprints, tmp_path)
+    await async_setup_hvac_drift(hass)
+
+    async def set_temperature(call: ServiceCall) -> None:
+        state = hass.states.get(CLIMATE)
+        hass.states.async_set(CLIMATE, state.state, {**state.attributes, "temperature": call.data["temperature"]})
+
+    async def set_hvac_mode(call: ServiceCall) -> None:
+        hass.states.async_set(CLIMATE, call.data["hvac_mode"], hass.states.get(CLIMATE).attributes)
+
+    hass.services.async_register("climate", "set_temperature", set_temperature)
+    hass.services.async_register("climate", "set_hvac_mode", set_hvac_mode)
+    hass.states.async_set(
+        CLIMATE, "off",
+        {"temperature": 21.0, "min_temp": 16, "max_temp": 30, "target_temp_step": 1,
+         "hvac_modes": ["off", "heat", "cool"]},
+    )
+    _set_offset(hass, 0.0, "idle")
+    assert await async_setup_component(
+        hass,
+        "automation",
+        {"automation": [{"id": "gf", "use_blueprint": {
+            "path": blueprint_path(BLUEPRINT_HVAC_SETPOINT_OFFSET), "input": {"climate_entity": CLIMATE}}}]},
+    )
+    await hass.async_block_till_done()
+    await _offset(hass, 2.0, "preheat")
+    assert hass.states.get(CLIMATE).state == "heat"
+    assert _setpoint(hass) == 23.0
+    await _offset(hass, 0.0)
+    assert hass.states.get(CLIMATE).state == "off"
+    assert _setpoint(hass) == 21.0

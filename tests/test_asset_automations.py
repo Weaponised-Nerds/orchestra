@@ -17,7 +17,7 @@ import unittest
 
 from custom_components.orchestra.blueprint_installer import BUNDLED_BLUEPRINT_DIR, install_blueprints
 from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
-from custom_components.orchestra.hvac_drift import plan_drift
+from custom_components.orchestra.hvac_drift import plan_drift, plan_mode
 from custom_components.orchestra.safety_guard import InProcessSafetyGuard
 from custom_components.orchestra.sensor import (
     OrchestraEVTargetAmpsSensor,
@@ -303,3 +303,48 @@ class TestHvacDriftPlan(unittest.TestCase):
         self.assertEqual(self._plan(None, 23.0, 1.5, mode="off"), (None, None))
         self.assertEqual(self._plan(None, 23.0, 1.5, mode="unavailable"), (None, None))
         self.assertEqual(self._plan(None, None, 1.5), (None, None))
+
+
+class TestHvacModePlan(unittest.TestCase):
+    """`plan_mode` switches off units on for pre-heat/pre-cool and back off afterwards."""
+
+    def _plan(self, held, mode, offset, dispatch, modes=("off", "heat", "cool", "fan_only")):
+        set_mode, held, _reason = plan_mode(
+            held, hvac_mode=mode, hvac_modes=list(modes), offset=offset, dispatch_mode=dispatch
+        )
+        return set_mode, held
+
+    def test_preheat_switches_on_and_back_off(self) -> None:
+        set_mode, held = self._plan(None, "off", 1.5, "preheat")
+        self.assertEqual(set_mode, "heat")
+        self.assertEqual(self._plan(held, "heat", 1.5, "preheat"), (None, held))
+        self.assertEqual(self._plan(held, "heat", 0.0, "idle"), ("off", None))
+
+    def test_precool_uses_a_supported_mode(self) -> None:
+        self.assertEqual(self._plan(None, "off", -1.5, "precool")[0], "cool")
+        self.assertEqual(self._plan(None, "off", -1.5, "precool", ("off", "heat_cool"))[0], "heat_cool")
+        self.assertEqual(self._plan(None, "off", -1.5, "precool", ("off", "fan_only"))[0], "fan_only")
+
+    def test_units_already_on_and_shed_are_left_alone(self) -> None:
+        self.assertEqual(self._plan(None, "cool", 1.5, "preheat"), (None, None))
+        self.assertEqual(self._plan(None, "off", 1.5, "shed"), (None, None))
+        self.assertEqual(self._plan(None, "off", 0.0, "preheat"), (None, None))
+
+    def test_switched_off_by_hand_stays_off(self) -> None:
+        _, held = self._plan(None, "off", 1.5, "preheat")
+        set_mode, held = self._plan(held, "off", 1.5, "preheat")  # slow to take it: once more
+        self.assertEqual(set_mode, "heat")
+        set_mode, held = self._plan(held, "off", 1.5, "preheat")
+        self.assertIsNone(set_mode)
+        self.assertEqual(self._plan(held, "off", 0.0, "idle"), (None, None))
+
+    def test_mode_changed_by_hand_is_not_undone(self) -> None:
+        _, held = self._plan(None, "off", 1.5, "preheat")
+        self.assertEqual(self._plan(held, "cool", 0.0, "idle"), (None, None))
+
+    def test_disabled(self) -> None:
+        self.assertEqual(
+            plan_mode(None, hvac_mode="off", hvac_modes=None, offset=1.5, dispatch_mode="preheat",
+                      turn_on_for_pre=False)[0],
+            None,
+        )
