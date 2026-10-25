@@ -320,6 +320,9 @@ recorder:
       - cloud
 
 automation: !include automations.yaml
+
+# UI helpers, e.g. the baseline setpoints the Orchestra HVAC blueprint remembers
+input_number:
 """
         yaml_path = self.config.ha_config_dir / "configuration.yaml"
         yaml_path.write_text(config_yaml, encoding="utf-8")

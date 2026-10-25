@@ -7,6 +7,10 @@ from orchestra.agent.circuit_identifier import (
     ControllableLoadProbeSpec,
     UnidentifiedPowerChannel,
 )
+from orchestra.agent.automation_builder import (
+    AssetAutomationPlan,
+    ConductorAutomationBuilder,
+)
 from orchestra.agent.dashboard_builder import GrandpaDashboardBuilder
 from orchestra.agent.dr_binder import (
     ConductorBindingManifest,
@@ -27,10 +31,12 @@ from orchestra.agent.tools import ZenithAgentCommissioningTools
 
 __all__ = [
     "ActiveCircuitIdentifier",
+    "AssetAutomationPlan",
     "AutonomousCommissioningResult",
     "CircuitIdentificationMatch",
     "CircuitProbeReport",
     "CommissioningStage",
+    "ConductorAutomationBuilder",
     "ConductorBindingManifest",
     "ConductorEntityBinder",
     "ControllableLoadBinding",

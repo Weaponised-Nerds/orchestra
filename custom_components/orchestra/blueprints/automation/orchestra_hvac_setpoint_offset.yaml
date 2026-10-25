@@ -1,0 +1,177 @@
+blueprint:
+  name: Orchestra - HVAC setpoint drift from Conductor
+  description: >-
+    Drifts one air conditioner's setpoint by the Conductor `hvac.setpoint_offset_c`
+    directive and puts it back afterwards.
+
+
+    The setpoint in use when a drift starts is remembered in a baseline helper
+    (an `input_number`, 0 to 40 °C, where 0 means "no drift held"). Every frame is
+    applied as baseline + offset, so repeated or changed offsets never compound.
+    When the offset returns to 0 (normal schedule, outside this home's tranche,
+    opt-out, or WAN fallback) the baseline is restored and released.
+
+
+    If someone changes the setpoint by hand during a drift, the next frame treats it
+    as them taking over: their setpoint is kept and nothing is restored later.
+  domain: automation
+  author: Weaponised Nerds
+  homeassistant:
+    min_version: "2024.10.0"
+  source_url: https://github.com/Weaponised-Nerds/orchestra/blob/main/custom_components/orchestra/blueprints/automation/orchestra_hvac_setpoint_offset.yaml
+  input:
+    climate_entity:
+      name: Air conditioner
+      selector:
+        entity:
+          filter:
+            - domain: climate
+    baseline_helper:
+      name: Baseline setpoint helper
+      description: >-
+        An input_number (min 0, max 40, step 0.1) used only by this automation to
+        remember the setpoint before the drift.
+      selector:
+        entity:
+          filter:
+            - domain: input_number
+    offset_sensor:
+      name: Orchestra setpoint offset sensor
+      default: sensor.orchestra_hvac_setpoint_offset
+      selector:
+        entity:
+          filter:
+            - integration: orchestra
+              domain: sensor
+    skip_when_off:
+      name: Leave the unit alone while it is off
+      description: Don't start a drift on a unit whose HVAC mode is off.
+      default: true
+      selector:
+        boolean: {}
+    invert_shed_when_heating:
+      name: Shed downwards when heating
+      description: >-
+        A load-shed offset raises the setpoint, which only saves energy when cooling.
+        When the unit is in heat mode, apply a shed offset as a drop instead.
+      default: true
+      selector:
+        boolean: {}
+
+mode: queued
+max: 10
+max_exceeded: silent
+
+triggers:
+  # State only (not attribute) changes: every new offset value, including back to 0
+  - trigger: state
+    entity_id: !input offset_sensor
+    to: null
+  # HVAC mode changes, e.g. the unit being switched on during an active drift
+  - trigger: state
+    entity_id: !input climate_entity
+    to: null
+
+variables:
+  climate_entity: !input climate_entity
+  baseline_helper: !input baseline_helper
+  offset_sensor: !input offset_sensor
+  skip_when_off: !input skip_when_off
+  invert_shed_when_heating: !input invert_shed_when_heating
+
+conditions:
+  - condition: template
+    value_template: "{{ states(offset_sensor) | is_number }}"
+
+actions:
+  - variables:
+      hvac_mode: "{{ states(climate_entity) }}"
+      current: "{{ state_attr(climate_entity, 'temperature') }}"
+      baseline: "{{ states(baseline_helper) | float(0) }}"
+      holding: "{{ baseline > 0 }}"
+      # The offset in force before this trigger, read from the trigger itself so a
+      # queued run can't see a later frame
+      offset_changed: "{{ trigger.entity_id == offset_sensor }}"
+      previous_raw: >-
+        {% if offset_changed %}{{ trigger.from_state.state | float(none) if trigger.from_state else none }}{% else %}{{ states(offset_sensor) | float(0) }}{% endif %}
+      previous_dispatch: >-
+        {% if offset_changed %}{{ trigger.from_state.attributes.dispatch_mode if trigger.from_state else none }}{% else %}{{ state_attr(offset_sensor, 'dispatch_mode') }}{% endif %}
+      raw_offset: "{{ states(offset_sensor) | float(0) }}"
+      shed_inverted: "{{ invert_shed_when_heating and hvac_mode == 'heat' }}"
+      offset: >-
+        {{ (0 - raw_offset | abs) if (shed_inverted
+           and state_attr(offset_sensor, 'dispatch_mode') == 'shed') else raw_offset }}
+      previous_offset: >-
+        {% if previous_raw is not number %}{{ none }}{% else %}{{ (0 - previous_raw | abs) if (shed_inverted
+           and previous_dispatch == 'shed') else previous_raw }}{% endif %}
+      step_attr: "{{ state_attr(climate_entity, 'target_temp_step') }}"
+      step: "{{ step_attr | float(0.5) if (step_attr | float(0)) > 0 else 0.5 }}"
+      # Without a declared step the unit may round our target, so allow half a degree
+      tolerance: "{{ (step / 2 + 0.01) if step_attr is not none else 0.51 }}"
+      min_temp: "{{ state_attr(climate_entity, 'min_temp') | float(7) }}"
+      max_temp: "{{ state_attr(climate_entity, 'max_temp') | float(35) }}"
+      # What the setpoint should read if nobody touched it since the last frame
+      expected: >-
+        {% if holding and previous_offset is number %}
+          {{ [[((baseline + previous_offset) / step) | round(0) * step, min_temp] | max, max_temp] | min | round(2) }}
+        {% else %}{{ none }}{% endif %}
+      taken_over: "{{ expected is number and current is number and (current - expected) | abs > tolerance }}"
+  - choose:
+      # Someone changed the setpoint during the drift: keep theirs and stop holding
+      - conditions:
+          - condition: template
+            value_template: "{{ taken_over }}"
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: "{{ baseline_helper }}"
+            data:
+              value: 0
+
+      # Offset cleared: restore the remembered setpoint and release it
+      - conditions:
+          - condition: template
+            value_template: "{{ offset | abs < 0.05 }}"
+        sequence:
+          - condition: template
+            value_template: "{{ holding }}"
+          - action: climate.set_temperature
+            target:
+              entity_id: "{{ climate_entity }}"
+            data:
+              temperature: "{{ baseline }}"
+          - action: input_number.set_value
+            target:
+              entity_id: "{{ baseline_helper }}"
+            data:
+              value: 0
+
+    # Offset active: baseline + offset, remembering the baseline on the first frame
+    default:
+      - condition: template
+        value_template: >-
+          {{ holding or (current is number
+                         and hvac_mode not in ['unavailable', 'unknown']
+                         and not (skip_when_off and hvac_mode == 'off')) }}
+      - variables:
+          base: "{{ baseline if holding else current }}"
+          target: >-
+            {{ [[((base + offset) / step) | round(0) * step, min_temp] | max, max_temp] | min | round(2) }}
+      - if:
+          - condition: template
+            value_template: "{{ not holding }}"
+        then:
+          - action: input_number.set_value
+            target:
+              entity_id: "{{ baseline_helper }}"
+            data:
+              value: "{{ base }}"
+      - if:
+          - condition: template
+            value_template: "{{ current is not number or (current - target) | abs > 0.01 }}"
+        then:
+          - action: climate.set_temperature
+            target:
+              entity_id: "{{ climate_entity }}"
+            data:
+              temperature: "{{ target }}"

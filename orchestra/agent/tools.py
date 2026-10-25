@@ -84,10 +84,15 @@ class ZenithAgentCommissioningTools:
     async def generate_household_load_contract(
         self,
         preferences: UserEnergyPreferences,
+        asset_automations: list[dict[str, Any]] | None = None,
     ) -> LoadShedContract:
         """
         Compile a personalized behind-the-meter Load Shed & Solar Soak Contract
         conditioning on homeowner comfort preferences and hardware safety guardrails.
+
+        `asset_automations` (from `ConductorAutomationBuilder`) replace the fixed
+        signal-based automations: they follow each Conductor asset directive on the
+        household's real entities instead of hard-coded ones.
         """
         enrolled_ids = list(self.engine.discovered_devices.keys())
         safety_cfg = self.engine.config.safety
@@ -183,6 +188,9 @@ class ZenithAgentCommissioningTools:
                 ],
             },
         ]
+
+        if asset_automations is not None:
+            automations = list(asset_automations)
 
         return LoadShedContract(
             contract_id=f"zenith-contract-{uuid.uuid4().hex[:8]}",

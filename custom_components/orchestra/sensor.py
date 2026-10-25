@@ -6,8 +6,16 @@ from typing import Any
 
 try:
     from .const import (
+        ASSET_EV,
+        ASSET_HEAT_PUMP,
+        ASSET_HOME_BATTERY,
+        ASSET_HVAC,
         DOMAIN,
         SENSOR_CONDUCTOR_CONTROL_SIGNAL,
+        SENSOR_EV_TARGET_AMPS,
+        SENSOR_HEAT_PUMP_TARGET_TEMP,
+        SENSOR_HOME_BATTERY_MIN_RESERVE,
+        SENSOR_HVAC_SETPOINT_OFFSET,
         SENSOR_WEM_OPERATIONAL_DEMAND,
         SENSOR_WEM_RENEWABLE_AVAILABILITY,
         SENSOR_WEM_WHOLESALE_PRICE,
@@ -18,8 +26,16 @@ try:
     from .entity import Entity, OrchestraBaseEntity
 except ImportError:
     from custom_components.orchestra.const import (
+        ASSET_EV,
+        ASSET_HEAT_PUMP,
+        ASSET_HOME_BATTERY,
+        ASSET_HVAC,
         DOMAIN,
         SENSOR_CONDUCTOR_CONTROL_SIGNAL,
+        SENSOR_EV_TARGET_AMPS,
+        SENSOR_HEAT_PUMP_TARGET_TEMP,
+        SENSOR_HOME_BATTERY_MIN_RESERVE,
+        SENSOR_HVAC_SETPOINT_OFFSET,
         SENSOR_WEM_OPERATIONAL_DEMAND,
         SENSOR_WEM_RENEWABLE_AVAILABILITY,
         SENSOR_WEM_WHOLESALE_PRICE,
@@ -54,6 +70,12 @@ async def async_setup_entry(
             OrchestraACDispatchModeSensor(coordinator),
             OrchestraCounterfactualShedSensor(coordinator),
             OrchestraAccumulatedDividendSensor(coordinator),
+
+            # Per-asset directive sensors driving the Orchestra automation blueprints
+            OrchestraHVACSetpointOffsetSensor(coordinator),
+            OrchestraEVTargetAmpsSensor(coordinator),
+            OrchestraHeatPumpTargetTempSensor(coordinator),
+            OrchestraHomeBatteryMinReserveSensor(coordinator),
 
             # 2. Backward-Compatible Conductor Aliases (sensor.conductor_dr_*)
             # Guarantees existing dashboards, Lovelace cards, and automations bind cleanly
@@ -274,3 +296,129 @@ class OrchestraAccumulatedDividendSensor(OrchestraBaseEntity, SensorEntity):
     @property
     def native_value(self) -> float:
         return self.coordinator.data.dispatch.accumulated_dividend_aud
+
+
+class _OrchestraAssetDirectiveSensor(OrchestraBaseEntity, SensorEntity):
+    """
+    Base for per-asset directive sensors. Values are already cohort-gated: when this
+    home is outside a directive's tranche the asset reports its normal schedule.
+    """
+
+    _asset: str = ""
+
+    def __init__(self, coordinator: OrchestraDataUpdateCoordinator, key: str) -> None:
+        super().__init__(coordinator, key, entity_id=f"sensor.{DOMAIN}_{key}")
+
+    def _common_attributes(self, action: str, reason: str) -> dict[str, Any]:
+        disp = self.coordinator.data.dispatch
+        return {
+            "action": action,
+            "reason": reason,
+            "control_signal": disp.control_signal,
+            "signal_source": disp.signal_source,
+            "dispatch_id": disp.dispatch_id,
+            "valid_until": disp.valid_until,
+            "targeted": self._asset not in disp.excluded_assets,
+            "opted_out": disp.opted_out,
+        }
+
+
+class OrchestraHVACSetpointOffsetSensor(_OrchestraAssetDirectiveSensor):
+    """Setpoint drift (°C) to add to each A/C's own baseline setpoint; 0 means no override."""
+
+    _asset = ASSET_HVAC
+
+    def __init__(self, coordinator: OrchestraDataUpdateCoordinator) -> None:
+        super().__init__(coordinator, SENSOR_HVAC_SETPOINT_OFFSET)
+        self._attr_name = "HVAC Setpoint Offset"
+        self._attr_native_unit_of_measurement = "°C"
+        self._attr_icon = "mdi:thermometer-chevron-up"
+
+    @property
+    def native_value(self) -> float:
+        return float(self.coordinator.data.dispatch.ac_setpoint_offset_c)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        disp = self.coordinator.data.dispatch
+        return {
+            **self._common_attributes(disp.ac_dispatch_mode, disp.ac_reason),
+            "dispatch_mode": disp.ac_dispatch_mode,
+            "mode": disp.ac_mode,
+        }
+
+
+class OrchestraEVTargetAmpsSensor(_OrchestraAssetDirectiveSensor):
+    """EV charger pilot current (A); 0 means pause charging."""
+
+    _asset = ASSET_EV
+
+    def __init__(self, coordinator: OrchestraDataUpdateCoordinator) -> None:
+        super().__init__(coordinator, SENSOR_EV_TARGET_AMPS)
+        self._attr_name = "EV Target Amps"
+        self._attr_native_unit_of_measurement = "A"
+        self._attr_device_class = "current"
+        self._attr_icon = "mdi:ev-station"
+
+    @property
+    def native_value(self) -> int:
+        return int(self.coordinator.data.dispatch.ev_target_amps)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        disp = self.coordinator.data.dispatch
+        return {
+            **self._common_attributes(disp.ev_action, disp.ev_reason),
+            "charge_now": disp.ev_charge_now,
+            "paused": disp.ev_target_amps == 0,
+        }
+
+
+class OrchestraHeatPumpTargetTempSensor(_OrchestraAssetDirectiveSensor):
+    """Heat pump hot water target (°C), clamped to the thermal storage guardrail."""
+
+    _asset = ASSET_HEAT_PUMP
+
+    def __init__(self, coordinator: OrchestraDataUpdateCoordinator) -> None:
+        super().__init__(coordinator, SENSOR_HEAT_PUMP_TARGET_TEMP)
+        self._attr_name = "Heat Pump Target Temperature"
+        self._attr_native_unit_of_measurement = "°C"
+        self._attr_device_class = "temperature"
+        self._attr_icon = "mdi:water-boiler"
+
+    @property
+    def native_value(self) -> float:
+        return float(self.coordinator.data.dispatch.heat_pump_target_temp_c)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        disp = self.coordinator.data.dispatch
+        return {
+            **self._common_attributes(disp.heat_pump_action, disp.heat_pump_reason),
+            "run_now": disp.heat_pump_run_now,
+        }
+
+
+class OrchestraHomeBatteryMinReserveSensor(_OrchestraAssetDirectiveSensor):
+    """Home battery minimum state-of-charge reserve (%) to hold."""
+
+    _asset = ASSET_HOME_BATTERY
+
+    def __init__(self, coordinator: OrchestraDataUpdateCoordinator) -> None:
+        super().__init__(coordinator, SENSOR_HOME_BATTERY_MIN_RESERVE)
+        self._attr_name = "Home Battery Minimum Reserve"
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_icon = "mdi:battery-lock"
+
+    @property
+    def native_value(self) -> float:
+        return float(self.coordinator.data.dispatch.battery_min_reserve_soc_pct)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        disp = self.coordinator.data.dispatch
+        return {
+            **self._common_attributes(disp.battery_action, disp.battery_reason),
+            "storm_watch": disp.home_battery_storm_watch,
+            "charge_from_grid": disp.battery_charge_from_grid,
+        }
