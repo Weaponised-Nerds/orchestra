@@ -122,16 +122,14 @@ each reading one directive sensor above. Create automations from them in
 
 | Blueprint | Drives | Behaviour |
 | :--- | :--- | :--- |
-| `orchestra_hvac_setpoint_offset.yaml` | `climate` | Drifts from the A/C's current setpoint: each frame moves it by the change in `setpoint_offset_c` (1.5 → 2.0 is +0.5, never compounding), and 0 takes the drift back off. A shed offset is applied downwards in heat mode. Optionally remembers the exact pre-drift setpoint in an `input_number` helper instead. |
+| `orchestra_hvac_setpoint_offset.yaml` | `climate` | Calls `orchestra.apply_hvac_offset`, which remembers the A/C's starting setpoint and sets starting setpoint + `setpoint_offset_c` (never compounding), restoring it at 0. Runs on every offset or mode change, when the automation is saved, at startup and every 5 minutes, so an offset that was already active is picked up. A shed offset is applied downwards in heat mode; a manual change mid-event becomes the new starting point. |
 | `orchestra_ev_charge_rate.yaml` | `number` (+ optional `switch`) | Follows `target_amps` within the charger's limits; `0` turns the charging switch off (or drops to the minimum). Returns to your normal current on `NORMAL`. |
 | `orchestra_heat_pump_target.yaml` | `water_heater` | Follows `target_temp_c`, optionally with a run-now operation mode; returns to your normal temperature. |
 | `orchestra_home_battery_reserve.yaml` | `number` (+ optional `switch`) | Holds `min_soc_reserve_pct` and grid charging; returns to your normal reserve on self-consumption. |
 
-The HVAC blueprint needs no helper: it works from the unit's live setpoint. The offset
-sensor restores its last value across restarts, so an active drift is never applied
-twice. Picking the optional baseline helper (an `input_number`, min `0`, max `40`, step
-`0.1`) instead remembers the exact setpoint from before the drift, and a manual change
-mid-event then hands control back to the homeowner.
+The HVAC blueprint needs no helper: Orchestra keeps each A/C's starting setpoint in
+`.storage/orchestra.hvac_drift`, so drifts survive restarts and repeated calls are
+idempotent. `orchestra.apply_hvac_offset` can also be called from your own automations.
 
 ---
 

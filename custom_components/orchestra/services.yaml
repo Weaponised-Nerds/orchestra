@@ -1,0 +1,24 @@
+apply_hvac_offset:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          filter:
+            - domain: climate
+          multiple: true
+    offset_sensor:
+      default: sensor.orchestra_hvac_setpoint_offset
+      selector:
+        entity:
+          filter:
+            - integration: orchestra
+              domain: sensor
+    invert_shed_when_heating:
+      default: true
+      selector:
+        boolean: {}
+    skip_when_off:
+      default: true
+      selector:
+        boolean: {}

@@ -49,6 +49,7 @@ try:
     )
     from .blueprint_installer import install_blueprints
     from .coordinator import OrchestraDataUpdateCoordinator
+    from .hvac_drift import async_setup_hvac_drift
     from .safety_guard import InProcessSafetyGuard
 except ImportError:
     from custom_components.orchestra.conductor_subscriber import ConductorSubscriber
@@ -79,6 +80,7 @@ except ImportError:
     )
     from custom_components.orchestra.blueprint_installer import install_blueprints
     from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
+    from custom_components.orchestra.hvac_drift import async_setup_hvac_drift
     from custom_components.orchestra.safety_guard import InProcessSafetyGuard
 try:
     from orchestra.config import OrchestraConfig
@@ -259,6 +261,7 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
         _safe_async_create_task(hass, subscriber.async_start())
 
     await _async_install_blueprints(hass)
+    await async_setup_hvac_drift(hass)
 
     if hasattr(hass, "config_entries") and hasattr(hass.config_entries, "async_forward_entry_setups"):
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

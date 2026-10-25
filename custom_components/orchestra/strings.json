@@ -78,5 +78,29 @@
         "name": "Conductor Customer Opt-Out"
       }
     }
+  },
+  "services": {
+    "apply_hvac_offset": {
+      "name": "Apply HVAC setpoint offset",
+      "description": "Drift A/C setpoints by the Conductor offset from each unit's own starting setpoint, and restore it when the offset is 0. Safe to call repeatedly.",
+      "fields": {
+        "entity_id": {
+          "name": "Air conditioners",
+          "description": "The climate entities to drift."
+        },
+        "offset_sensor": {
+          "name": "Offset sensor",
+          "description": "The Orchestra setpoint offset sensor to follow."
+        },
+        "invert_shed_when_heating": {
+          "name": "Shed downwards when heating",
+          "description": "Apply a load-shed offset as a drop while the unit is heating."
+        },
+        "skip_when_off": {
+          "name": "Leave units alone while off",
+          "description": "Don't start a drift on a unit whose HVAC mode is off."
+        }
+      }
+    }
   }
 }
