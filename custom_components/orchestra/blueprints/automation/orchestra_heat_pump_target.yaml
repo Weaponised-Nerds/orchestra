@@ -1,16 +1,21 @@
 blueprint:
   name: Orchestra - Heat pump from Conductor
   description: >-
-    Runs a heat pump from Conductor signals. Energy Soak switches it on and sets the
-    `heat_pump` directive's target temperature, kept within the heat pump's own
-    min/max (a pool heat pump that tops out at 30 °C gets 30). Load Shed switches it off. Back on Normal it returns
-    to exactly what it was doing before: on or off, and its previous temperature and
-    operation mode.
+    Runs a heat pump from Conductor signals. Energy Soak switches it on at its Boost
+    setpoint, Load Shed switches it off at its Coast setpoint, and back on Normal it
+    returns to on or off as it was before, at its Normal setpoint.
+
+
+    Set the three setpoints (and operation modes) for this heat pump: a pool heat pump
+    might use 30 / 26 / 28 °C, a hot water tank 65 / 50 / 60 °C. Leave a temperature at
+    0 to use Conductor's own target for Boost (made for hot water tanks), or what the
+    heat pump was set to before the event for Normal. Every temperature is kept within
+    the heat pump's own min/max.
 
 
     If the heat pump is switched on and off by a separate entity (a power switch),
     pick it below: the switch is then turned on and off, and the water heater only
-    has its temperature set and put back.
+    has its temperature and mode set.
   domain: automation
   author: Weaponised Nerds
   homeassistant:
@@ -33,11 +38,42 @@ blueprint:
         entity:
           filter:
             - domain: [switch, input_boolean, climate, water_heater]
+    boost_temperature:
+      name: Boost setpoint (Energy Soak)
+      description: 0 uses Conductor's own soak target.
+      default: 0
+      selector:
+        number: {min: 0, max: 80, step: 0.5, unit_of_measurement: °C, mode: box}
     boost_operation_mode:
-      name: Energy Soak operation mode (optional)
+      name: Boost operation mode (optional)
+      description: e.g. "boost" or "high_demand". One of the heater's own modes; case doesn't matter.
+      default: ""
+      selector:
+        text: {}
+    coast_temperature:
+      name: Coast setpoint (Load Shed)
+      description: Set as Load Shed starts, before switching off. 0 leaves the temperature alone.
+      default: 0
+      selector:
+        number: {min: 0, max: 80, step: 0.5, unit_of_measurement: °C, mode: box}
+    coast_operation_mode:
+      name: Coast operation mode (optional)
+      description: e.g. "silence" or "eco". One of the heater's own modes; case doesn't matter.
+      default: ""
+      selector:
+        text: {}
+    normal_temperature:
+      name: Normal setpoint
+      description: Set when the event ends. 0 puts back whatever it was set to before.
+      default: 0
+      selector:
+        number: {min: 0, max: 80, step: 0.5, unit_of_measurement: °C, mode: box}
+    normal_operation_mode:
+      name: Normal operation mode (optional)
       description: >-
-        Water heater operation mode while soaking, e.g. "high_demand" or "boost". Must
-        be one of the heater's own modes; case doesn't matter.
+        Set when the event ends. Empty puts back the mode it was in before (if the
+        heater reports one; localtuya doesn't). One of the heater's own modes; case
+        doesn't matter.
       default: ""
       selector:
         text: {}
@@ -49,25 +85,6 @@ blueprint:
           filter:
             - integration: orchestra
               domain: sensor
-    normal_temperature:
-      name: Normal target temperature (no longer used)
-      description: Orchestra now puts back the temperature the heat pump had before the event.
-      default: 60
-      selector:
-        number:
-          min: 45
-          max: 70
-          step: 1
-          unit_of_measurement: °C
-    normal_operation_mode:
-      name: Normal operation mode (optional)
-      description: >-
-        Orchestra puts back the operation mode the heat pump had before the event. If
-        your heater doesn't report its mode (e.g. localtuya), this mode is used instead.
-        Must be one of the heater's own modes; case doesn't matter.
-      default: ""
-      selector:
-        text: {}
 
 mode: queued
 max: 10
@@ -105,5 +122,9 @@ actions:
       entity_id: "{{ [water_heater] | reject('in', ['', none]) | list }}"
       power_switch: "{{ [power_switch] | reject('in', ['', none]) | list }}"
       target_sensor: !input target_sensor
+      boost_temperature: !input boost_temperature
       boost_operation_mode: !input boost_operation_mode
+      coast_temperature: !input coast_temperature
+      coast_operation_mode: !input coast_operation_mode
+      normal_temperature: !input normal_temperature
       normal_operation_mode: !input normal_operation_mode
