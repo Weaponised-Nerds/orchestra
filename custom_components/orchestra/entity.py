@@ -133,5 +133,5 @@ class OrchestraBaseEntity(CoordinatorEntity):
             "name": "Orchestra Gateway",
             "manufacturer": "Weaponised Nerds",
             "model": "WEM Predictive Micro-Node",
-            "sw_version": "0.2.12",
+            "sw_version": "0.2.13",
         }

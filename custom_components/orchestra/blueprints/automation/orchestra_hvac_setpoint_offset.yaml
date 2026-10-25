@@ -44,6 +44,15 @@ blueprint:
       default: true
       selector:
         boolean: {}
+    turn_on_for_pre:
+      name: Switch on for pre-heat and pre-cool
+      description: >-
+        Switch a unit that is off on (in heat or cool) for a Conductor pre-heat or
+        pre-cool, and back off when it ends. A unit switched off by hand during the
+        event is left off.
+      default: true
+      selector:
+        boolean: {}
     invert_shed_when_heating:
       name: Shed downwards when heating
       description: >-
@@ -89,4 +98,5 @@ actions:
       entity_id: !input climate_entity
       offset_sensor: !input offset_sensor
       skip_when_off: !input skip_when_off
+      turn_on_for_pre: !input turn_on_for_pre
       invert_shed_when_heating: !input invert_shed_when_heating

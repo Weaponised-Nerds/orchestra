@@ -6,6 +6,9 @@ HA start and every few minutes. Orchestra remembers each A/C's starting setpoint
 the target it last set, so each call is idempotent: it sets starting setpoint + current
 offset, never compounding, and restores the starting setpoint when the offset is 0.
 A setpoint changed by hand mid-drift becomes the new starting point.
+
+Pre-heat and pre-cool also switch on a unit that is off, and switch it back off once
+the pre-conditioning ends. A unit switched off by hand mid-event is left off.
 """
 
 from __future__ import annotations
@@ -111,6 +114,58 @@ def plan_drift(
     return target, next_held, reason
 
 
+PRE_MODES = {"preheat": "heat", "precool": "cool"}
+
+
+def _pick_mode(wanted: str, hvac_modes: list[str] | None) -> str | None:
+    """The mode to switch an off unit on in, from the modes it supports."""
+    if not hvac_modes:
+        return wanted
+    for mode in (wanted, "heat_cool", "auto"):
+        if mode in hvac_modes:
+            return mode
+    return next((mode for mode in hvac_modes if mode != "off"), None)
+
+
+def plan_mode(
+    held: dict[str, Any] | None,
+    *,
+    hvac_mode: str,
+    hvac_modes: list[str] | None,
+    offset: float,
+    dispatch_mode: str | None,
+    turn_on_for_pre: bool = True,
+) -> tuple[str | None, dict[str, Any] | None, str | None]:
+    """
+    Work out the HVAC mode to set (None = leave it), what to remember next
+    (None = nothing held), and a reason when the mode changes. Only a unit Orchestra
+    switched on itself is switched back.
+    """
+    if hvac_mode in UNAVAILABLE_STATES:
+        return None, held, None
+    pre_mode = PRE_MODES.get(dispatch_mode or "") if abs(offset) >= 0.05 else None
+
+    if pre_mode:
+        if held is None:
+            if not (turn_on_for_pre and hvac_mode == "off"):
+                return None, None, None
+            mode = _pick_mode(pre_mode, hvac_modes)
+            if mode is None:
+                return None, None, None
+            return mode, {"restore": "off", "set": mode}, f"switching on in {mode} for {dispatch_mode}"
+        if "set" in held and hvac_mode == "off":
+            # Still off once could be a unit slow to take the command; twice is by hand
+            if held.get("resends", 0) < 1:
+                resent = {**held, "resends": held.get("resends", 0) + 1}
+                return held["set"], resent, f"still off, switching on in {held['set']} again"
+            return None, {"off_by_hand": True}, None
+        return None, held, None
+
+    if held and "set" in held and hvac_mode == held["set"]:
+        return held["restore"], None, f"{held['restore']} again now {dispatch_mode or 'idle'}"
+    return None, None, None
+
+
 class HvacDriftController:
     """Persists per-A/C drift state and applies `orchestra.apply_hvac_offset` calls."""
 
@@ -120,10 +175,15 @@ class HvacDriftController:
         self.hass = hass
         self._store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self._held: dict[str, dict[str, float]] = {}
+        self._modes: dict[str, dict[str, Any]] = {}
         self._lock = asyncio.Lock()
 
     async def async_load(self) -> None:
-        self._held = await self._store.async_load() or {}
+        data = await self._store.async_load() or {}
+        if "drift" in data:
+            self._held, self._modes = data["drift"], data.get("modes", {})
+        else:  # saved before modes were held
+            self._held = data
 
     async def async_apply(self, call: Any) -> dict[str, Any]:
         offset_sensor = call.data.get("offset_sensor", DEFAULT_OFFSET_SENSOR)
@@ -143,7 +203,7 @@ class HvacDriftController:
                 results[entity_id] = await self._async_apply_one(
                     entity_id, offset, offset_state.attributes, call
                 )
-            self._store.async_delay_save(lambda: self._held, 1)
+            self._store.async_delay_save(lambda: {"drift": self._held, "modes": self._modes}, 1)
         return results
 
     async def _async_apply_one(
@@ -154,12 +214,28 @@ class HvacDriftController:
             return {"reason": "entity not found"}
         attrs = climate.attributes
         current = _as_float(attrs.get("temperature"))
+        dispatch_mode = offset_attrs.get("dispatch_mode")
+        set_mode, mode_held, mode_reason = plan_mode(
+            self._modes.get(entity_id),
+            hvac_mode=climate.state,
+            hvac_modes=attrs.get("hvac_modes"),
+            offset=offset,
+            dispatch_mode=dispatch_mode,
+            turn_on_for_pre=call.data.get("turn_on_for_pre", True),
+        )
+        if mode_held is None:
+            self._modes.pop(entity_id, None)
+        else:
+            self._modes[entity_id] = mode_held
+        switching_on = set_mode is not None and climate.state == "off"
+        if switching_on:
+            await self._async_set_mode(entity_id, set_mode, call)
         target, held, reason = plan_drift(
             self._held.get(entity_id),
             current=current,
-            hvac_mode=climate.state,
+            hvac_mode=set_mode if switching_on else climate.state,
             offset=offset,
-            dispatch_mode=offset_attrs.get("dispatch_mode"),
+            dispatch_mode=dispatch_mode,
             step=_as_float(attrs.get("target_temp_step")),
             min_temp=_as_float(attrs.get("min_temp"), 7.0),
             max_temp=_as_float(attrs.get("max_temp"), 35.0),
@@ -174,10 +250,12 @@ class HvacDriftController:
             "hvac_mode": climate.state,
             "current_setpoint": current,
             "offset": offset,
-            "dispatch_mode": offset_attrs.get("dispatch_mode"),
+            "dispatch_mode": dispatch_mode,
             "new_setpoint": target,
-            "reason": reason,
+            "reason": f"{mode_reason}; {reason}" if mode_reason else reason,
         }
+        if set_mode is not None:
+            result["new_hvac_mode"] = set_mode
         (_LOGGER.info if target is not None else _LOGGER.debug)("Orchestra HVAC drift %s: %s", entity_id, result)
         if target is not None:
             await self.hass.services.async_call(
@@ -187,7 +265,18 @@ class HvacDriftController:
                 blocking=True,
                 context=call.context,
             )
+        if set_mode is not None and not switching_on:
+            await self._async_set_mode(entity_id, set_mode, call)
         return result
+
+    async def _async_set_mode(self, entity_id: str, hvac_mode: str, call: Any) -> None:
+        await self.hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {"entity_id": entity_id, "hvac_mode": hvac_mode},
+            blocking=True,
+            context=call.context,
+        )
 
 
 async def async_setup_hvac_drift(hass: Any) -> None:
@@ -216,6 +305,7 @@ async def async_setup_hvac_drift(hass: Any) -> None:
                 vol.Optional("offset_sensor", default=DEFAULT_OFFSET_SENSOR): cv.entity_id,
                 vol.Optional("invert_shed_when_heating", default=True): cv.boolean,
                 vol.Optional("skip_when_off", default=True): cv.boolean,
+                vol.Optional("turn_on_for_pre", default=True): cv.boolean,
             }
         ),
         supports_response=SupportsResponse.OPTIONAL,

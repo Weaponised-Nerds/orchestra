@@ -99,6 +99,10 @@
         "skip_when_off": {
           "name": "Leave units alone while off",
           "description": "Don't start a drift on a unit whose HVAC mode is off."
+        },
+        "turn_on_for_pre": {
+          "name": "Switch on for pre-heat and pre-cool",
+          "description": "Switch an off unit on for pre-heat or pre-cool, and back off when it ends."
         }
       }
     }
