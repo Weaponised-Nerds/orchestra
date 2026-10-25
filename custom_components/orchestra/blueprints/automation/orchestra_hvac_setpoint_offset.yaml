@@ -1,9 +1,14 @@
 blueprint:
   name: Orchestra - HVAC setpoint drift from Conductor
   description: >-
-    Drifts one air conditioner's setpoint by the Conductor `hvac.setpoint_offset_c`
-    directive, starting from whatever the A/C is currently set to, and puts it back
+    Drifts air conditioner setpoints by the Conductor `hvac.setpoint_offset_c`
+    directive, starting from whatever each one is currently set to, and puts them back
     afterwards.
+
+
+    Pick the climate entities whose setpoint actually drives the unit. For a zoned
+    system using zone temperature control (AirTouch, for example), that is the zones:
+    the A/C's own setpoint follows them and ignores anything set on it directly.
 
 
     Orchestra remembers the starting setpoint, so every frame sets starting setpoint +
@@ -19,9 +24,10 @@ blueprint:
   source_url: https://github.com/Weaponised-Nerds/orchestra/blob/main/custom_components/orchestra/blueprints/automation/orchestra_hvac_setpoint_offset.yaml
   input:
     climate_entity:
-      name: Air conditioner
+      name: Air conditioners or zones
       selector:
         entity:
+          multiple: true
           filter:
             - domain: climate
     offset_sensor:
