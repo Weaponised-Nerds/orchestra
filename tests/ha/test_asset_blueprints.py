@@ -15,6 +15,7 @@ pytest.importorskip("pytest_homeassistant_custom_component")
 from homeassistant.core import HomeAssistant, ServiceCall  # noqa: E402
 from homeassistant.setup import async_setup_component  # noqa: E402
 
+from custom_components.orchestra.hvac_drift import async_setup_hvac_drift  # noqa: E402
 from custom_components.orchestra.blueprint_installer import (  # noqa: E402
     BLUEPRINT_EV_CHARGE_RATE,
     BLUEPRINT_HEAT_PUMP_TARGET,
@@ -24,9 +25,8 @@ from custom_components.orchestra.blueprint_installer import (  # noqa: E402
     install_blueprints,
 )
 
-CLIMATE = "climate.lounge"  # with a baseline helper
-BEDROOM = "climate.bedroom"  # drifting from the live setpoint, no helper
-BASELINE = "input_number.lounge_baseline"
+CLIMATE = "climate.lounge"
+BEDROOM = "climate.bedroom"  # an older automation that still names a baseline helper
 OFFSET = "sensor.orchestra_hvac_setpoint_offset"
 AMPS = "sensor.orchestra_ev_target_amps"
 CHARGER = "number.wallbox_charging_current"
@@ -60,7 +60,8 @@ async def setup(hass: HomeAssistant, tmp_path):
 
     async def climate_set_temperature(call: ServiceCall) -> None:
         calls.append(call)
-        for entity_id in call.data["entity_id"]:
+        entity_ids = call.data["entity_id"]
+        for entity_id in [entity_ids] if isinstance(entity_ids, str) else entity_ids:
             state = hass.states.get(entity_id)
             hass.states.async_set(
                 entity_id, state.state, {**state.attributes, "temperature": call.data["temperature"]}
@@ -84,11 +85,7 @@ async def setup(hass: HomeAssistant, tmp_path):
     hass.states.async_set(RESERVE, "20.0", {"action": "SELF_CONSUME", "charge_from_grid": False})
     hass.states.async_set(BATTERY_RESERVE, "20", {"min": 0, "max": 100})
 
-    assert await async_setup_component(
-        hass,
-        "input_number",
-        {"input_number": {"lounge_baseline": {"min": 0, "max": 40, "step": 0.1, "mode": "box"}}},
-    )
+    await async_setup_hvac_drift(hass)
     assert await async_setup_component(
         hass,
         "automation",
@@ -98,14 +95,14 @@ async def setup(hass: HomeAssistant, tmp_path):
                     "id": "hvac",
                     "use_blueprint": {
                         "path": blueprint_path(BLUEPRINT_HVAC_SETPOINT_OFFSET),
-                        "input": {"climate_entity": CLIMATE, "baseline_helper": BASELINE},
+                        "input": {"climate_entity": CLIMATE},
                     },
                 },
                 {
                     "id": "bedroom",
                     "use_blueprint": {
                         "path": blueprint_path(BLUEPRINT_HVAC_SETPOINT_OFFSET),
-                        "input": {"climate_entity": BEDROOM},
+                        "input": {"climate_entity": BEDROOM, "baseline_helper": ""},
                     },
                 },
                 {
@@ -145,129 +142,94 @@ def _setpoint(hass: HomeAssistant, entity_id: str = CLIMATE) -> float:
     return hass.states.get(entity_id).attributes["temperature"]
 
 
-def _baseline(hass: HomeAssistant) -> float:
-    return float(hass.states.get(BASELINE).state)
-
-
-async def test_hvac_offset_drifts_from_baseline_without_compounding(hass, setup) -> None:
-    _set_offset(hass, 1.5)
+async def _offset(hass: HomeAssistant, offset: float, dispatch_mode: str = "shed") -> None:
+    _set_offset(hass, offset, dispatch_mode if offset else "idle")
     await hass.async_block_till_done()
-    assert _baseline(hass) == 23.0
+
+
+async def test_hvac_drifts_from_starting_setpoint_without_compounding(hass, setup) -> None:
+    for offset, expected in ((1.5, 24.5), (2.0, 25.0), (1.5, 24.5), (0.0, 23.0)):
+        await _offset(hass, offset)
+        assert _setpoint(hass) == expected
+        assert _setpoint(hass, BEDROOM) == expected
+
+
+async def test_hvac_reconcile_is_idempotent(hass, setup) -> None:
+    await _offset(hass, 1.5)
+    for _ in range(3):
+        hass.bus.async_fire("automation_reloaded")
+        await hass.async_block_till_done()
     assert _setpoint(hass) == 24.5
 
-    # Same offset again (e.g. a re-broadcast frame) and a new offset: always from baseline
-    _set_offset(hass, 2.0)
-    await hass.async_block_till_done()
-    assert _setpoint(hass) == 25.0
-    _set_offset(hass, 1.5)
-    await hass.async_block_till_done()
-    assert _setpoint(hass) == 24.5
-    assert _baseline(hass) == 23.0
 
-    # Back to normal restores and releases the baseline
-    _set_offset(hass, 0.0, "idle")
+async def test_hvac_picks_up_an_offset_already_active_when_saved(hass, tmp_path) -> None:
+    """The reported bug: saving the automation mid-event must still drift the A/C."""
+    hass.config.config_dir = str(tmp_path)
+    await hass.async_add_executor_job(install_blueprints, tmp_path)
+    await async_setup_hvac_drift(hass)
+
+    async def climate_set_temperature(call: ServiceCall) -> None:
+        state = hass.states.get(CLIMATE)
+        hass.states.async_set(CLIMATE, state.state, {**state.attributes, "temperature": call.data["temperature"]})
+
+    hass.services.async_register("climate", "set_temperature", climate_set_temperature)
+    _set_climate(hass, "cool", 23.0)
+    _set_offset(hass, 1.5)  # Conductor has been sending 1.5 since before the automation existed
+    assert await async_setup_component(
+        hass,
+        "automation",
+        {"automation": [{"id": "gf", "use_blueprint": {
+            "path": blueprint_path(BLUEPRINT_HVAC_SETPOINT_OFFSET), "input": {"climate_entity": CLIMATE}}}]},
+    )
     await hass.async_block_till_done()
     assert _setpoint(hass) == 23.0
-    assert _baseline(hass) == 0.0
-
-
-async def test_hvac_manual_change_during_drift_hands_back_control(hass, setup) -> None:
-    _set_offset(hass, 1.5)
+    # What saving it in the editor fires once the new automation is loaded
+    hass.bus.async_fire("automation_reloaded")
     await hass.async_block_till_done()
     assert _setpoint(hass) == 24.5
 
+
+async def test_hvac_manual_change_becomes_new_start(hass, setup) -> None:
+    await _offset(hass, 1.5)
     _set_climate(hass, "cool", 22.0)  # someone turns it down by hand
     await hass.async_block_till_done()
-
-    # The next frame sees the takeover: their setpoint stays and nothing is restored
-    _set_offset(hass, 2.0)
-    await hass.async_block_till_done()
-    assert _setpoint(hass) == 22.0
-    assert _baseline(hass) == 0.0
-    _set_offset(hass, 0.0, "idle")
-    await hass.async_block_till_done()
-    assert _setpoint(hass) == 22.0
-
-
-async def test_hvac_manual_change_then_restore_keeps_users_setpoint(hass, setup) -> None:
-    _set_offset(hass, 1.5)
-    await hass.async_block_till_done()
-    _set_climate(hass, "cool", 25.0)
-    await hass.async_block_till_done()
-    _set_offset(hass, 0.0, "idle")
-    await hass.async_block_till_done()
-    assert _setpoint(hass) == 25.0
-    assert _baseline(hass) == 0.0
+    await _offset(hass, 2.0)
+    assert _setpoint(hass) == 22.5
+    await _offset(hass, 0.0)
+    assert _setpoint(hass) == 20.5
 
 
 async def test_hvac_shed_drops_setpoint_when_heating(hass, setup) -> None:
     _set_climate(hass, "heat", 21.0)
     await hass.async_block_till_done()
-    _set_offset(hass, 1.5, "shed")
-    await hass.async_block_till_done()
+    await _offset(hass, 1.5, "shed")
     assert _setpoint(hass) == 19.5
-
-    # A preheat offset is applied as sent
-    _set_offset(hass, 0.0, "idle")
-    await hass.async_block_till_done()
-    _set_offset(hass, 1.5, "preheat")
-    await hass.async_block_till_done()
+    await _offset(hass, 0.0)
+    assert _setpoint(hass) == 21.0
+    await _offset(hass, 1.5, "preheat")
     assert _setpoint(hass) == 22.5
 
 
 async def test_hvac_leaves_unit_alone_when_off_and_clamps(hass, setup) -> None:
     _set_climate(hass, "off", 23.0)
     await hass.async_block_till_done()
-    _set_offset(hass, 1.5)
-    await hass.async_block_till_done()
+    await _offset(hass, 1.5)
     assert _setpoint(hass) == 23.0
-    assert _baseline(hass) == 0.0
 
     # Switching it on mid-event starts the drift, clamped to the unit's max_temp
     _set_climate(hass, "cool", 29.5)
     await hass.async_block_till_done()
     assert _setpoint(hass) == 30.0
-    assert _baseline(hass) == 29.5
+    await _offset(hass, 0.0)
+    assert _setpoint(hass) == 29.5
 
 
-async def test_live_setpoint_drift_moves_by_offset_change(hass, setup) -> None:
-    for offset, expected in ((1.5, 24.5), (2.0, 25.0), (1.5, 24.5), (0.0, 23.0)):
-        _set_offset(hass, offset, "shed" if offset else "idle")
-        await hass.async_block_till_done()
-        assert _setpoint(hass, BEDROOM) == expected
-
-
-async def test_live_setpoint_drift_keeps_manual_change_as_new_start(hass, setup) -> None:
-    _set_offset(hass, 1.5)
-    await hass.async_block_till_done()
-    _set_climate(hass, "cool", 22.0, BEDROOM)
-    await hass.async_block_till_done()
-    _set_offset(hass, 0.0, "idle")
-    await hass.async_block_till_done()
-    assert _setpoint(hass, BEDROOM) == 20.5
-
-
-async def test_live_setpoint_drift_ignores_unknown_previous_offset(hass, setup) -> None:
-    """After a restart or reload the first value isn't a change, so nothing is re-applied."""
-    _set_offset(hass, 1.5)
-    await hass.async_block_till_done()
-    assert _setpoint(hass, BEDROOM) == 24.5
+async def test_hvac_ignores_unavailable_offset(hass, setup) -> None:
+    await _offset(hass, 1.5)
     hass.states.async_set(OFFSET, "unavailable")
     await hass.async_block_till_done()
-    _set_offset(hass, 1.5)
-    await hass.async_block_till_done()
-    assert _setpoint(hass, BEDROOM) == 24.5
-
-
-async def test_live_setpoint_drift_inverts_shed_when_heating(hass, setup) -> None:
-    _set_climate(hass, "heat", 21.0, BEDROOM)
-    await hass.async_block_till_done()
-    _set_offset(hass, 1.5, "shed")
-    await hass.async_block_till_done()
-    assert _setpoint(hass, BEDROOM) == 19.5
-    _set_offset(hass, 0.0, "idle")
-    await hass.async_block_till_done()
-    assert _setpoint(hass, BEDROOM) == 21.0
+    await _offset(hass, 1.5)
+    assert _setpoint(hass) == 24.5
 
 
 async def test_ev_follows_target_amps_and_returns_to_normal(hass, setup) -> None:

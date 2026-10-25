@@ -17,6 +17,7 @@ import unittest
 
 from custom_components.orchestra.blueprint_installer import BUNDLED_BLUEPRINT_DIR, install_blueprints
 from custom_components.orchestra.coordinator import OrchestraDataUpdateCoordinator
+from custom_components.orchestra.hvac_drift import plan_drift
 from custom_components.orchestra.safety_guard import InProcessSafetyGuard
 from custom_components.orchestra.sensor import (
     OrchestraEVTargetAmpsSensor,
@@ -246,3 +247,44 @@ class TestBlueprintInstallAndAgentAutomations(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(hvac)
         for a in hvac:
             self.assertEqual(set(a["use_blueprint"]["input"]), {"climate_entity"})
+
+
+class TestHvacDriftPlan(unittest.TestCase):
+    """`plan_drift` decides each `orchestra.apply_hvac_offset` call from remembered state."""
+
+    def _plan(self, held, current, offset, mode="cool", dispatch="shed", step=0.5):
+        return plan_drift(
+            held, current=current, hvac_mode=mode, offset=offset, dispatch_mode=dispatch,
+            step=step, min_temp=16, max_temp=30,
+        )
+
+    def test_sequence_never_compounds_and_restores(self) -> None:
+        held = None
+        for offset, current, expected in ((1.5, 23.0, 24.5), (2.0, 24.5, 25.0), (1.5, 25.0, 24.5)):
+            target, held = self._plan(held, current, offset)
+            self.assertEqual(target, expected)
+            self.assertEqual(held["baseline"], 23.0)
+        target, held = self._plan(held, 24.5, 0.0, dispatch="idle")
+        self.assertEqual((target, held), (23.0, None))
+
+    def test_steady_offset_is_applied_once(self) -> None:
+        target, held = self._plan(None, 23.0, 1.5)
+        self.assertEqual(target, 24.5)
+        self.assertEqual(self._plan(held, 24.5, 1.5), (None, held))
+
+    def test_manual_change_becomes_new_start(self) -> None:
+        _, held = self._plan(None, 23.0, 1.5)
+        target, held = self._plan(held, 22.0, 1.5)
+        self.assertIsNone(target)
+        self.assertEqual(held["baseline"], 20.5)
+
+    def test_device_rounding_is_not_a_manual_change(self) -> None:
+        _, held = self._plan(None, 23.0, 1.5, step=None)
+        target, held = self._plan(held, 25.0, 1.5, step=None)  # unit rounded 24.5 up
+        self.assertIsNone(target)
+        self.assertEqual(held["baseline"], 23.0)
+
+    def test_off_units_and_unavailable_states_are_left_alone(self) -> None:
+        self.assertEqual(self._plan(None, 23.0, 1.5, mode="off"), (None, None))
+        self.assertEqual(self._plan(None, 23.0, 1.5, mode="unavailable"), (None, None))
+        self.assertEqual(self._plan(None, None, 1.5), (None, None))
