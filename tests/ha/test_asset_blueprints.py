@@ -507,3 +507,31 @@ async def test_localtuya_pool_heat_pump_gets_its_temperatures(hass, tmp_path) ->
     assert hass.states.get(HP_POWER).state == "off"
     assert hass.states.get(WATER_HEATER).attributes["temperature"] == 26
     assert hass.states.get(WATER_HEATER).attributes["operation_mode"] == "silence"
+
+
+async def test_heat_pump_presets_replace_conductor_targets(hass, tmp_path) -> None:
+    """A pool heat pump uses its own Boost/Coast/Normal setpoints, not a 65 °C hot water target."""
+    hass.states.async_set(
+        WATER_HEATER, "unknown",
+        {"temperature": 27, "min_temp": 20, "max_temp": 30, "operation_mode": None,
+         "operation_list": ["boost", "silence", "Off"]},
+    )
+    hass.states.async_set(HP_POWER, "off")
+    await _heat_pump_setup(hass, tmp_path, {
+        "water_heater": WATER_HEATER, "power_switch": HP_POWER,
+        "boost_temperature": 29, "boost_operation_mode": "Boost",
+        "coast_temperature": 24, "coast_operation_mode": "silence",
+        "normal_temperature": 28, "normal_operation_mode": "Silence",
+    })
+
+    await _hp_signal(hass, "Energy Soak", 65.0, run_now=True)
+    attrs = hass.states.get(WATER_HEATER).attributes
+    assert (hass.states.get(HP_POWER).state, attrs["temperature"], attrs["operation_mode"]) == ("on", 29, "boost")
+
+    await _hp_signal(hass, "Load Shed", 50.0)
+    attrs = hass.states.get(WATER_HEATER).attributes
+    assert (hass.states.get(HP_POWER).state, attrs["temperature"], attrs["operation_mode"]) == ("off", 24, "silence")
+
+    await _hp_signal(hass, "Normal/Auto", 60.0)
+    attrs = hass.states.get(WATER_HEATER).attributes
+    assert (hass.states.get(HP_POWER).state, attrs["temperature"], attrs["operation_mode"]) == ("off", 28, "silence")

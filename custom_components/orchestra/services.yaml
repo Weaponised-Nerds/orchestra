@@ -51,3 +51,15 @@ apply_heat_pump:
     normal_operation_mode:
       selector:
         text: {}
+    coast_operation_mode:
+      selector:
+        text: {}
+    boost_temperature:
+      selector:
+        number: {min: 0, max: 80, step: 0.5, unit_of_measurement: °C, mode: box}
+    coast_temperature:
+      selector:
+        number: {min: 0, max: 80, step: 0.5, unit_of_measurement: °C, mode: box}
+    normal_temperature:
+      selector:
+        number: {min: 0, max: 80, step: 0.5, unit_of_measurement: °C, mode: box}

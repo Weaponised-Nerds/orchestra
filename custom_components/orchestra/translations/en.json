@@ -128,7 +128,23 @@
         },
         "normal_operation_mode": {
           "name": "Normal operation mode",
-          "description": "Mode to put back on Normal when the heater doesn't report the mode it was in."
+          "description": "Mode to set when the event ends (otherwise the remembered one)."
+        },
+        "coast_operation_mode": {
+          "name": "Coast operation mode",
+          "description": "Mode to set when Load Shed starts."
+        },
+        "boost_temperature": {
+          "name": "Boost setpoint",
+          "description": "Temperature for Energy Soak; 0 uses Conductor's target."
+        },
+        "coast_temperature": {
+          "name": "Coast setpoint",
+          "description": "Temperature set when Load Shed starts; 0 leaves it."
+        },
+        "normal_temperature": {
+          "name": "Normal setpoint",
+          "description": "Temperature set when the event ends; 0 restores the previous one."
         }
       }
     }

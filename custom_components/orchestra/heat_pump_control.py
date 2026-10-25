@@ -8,6 +8,11 @@ before: on or off, and its previous temperature and operation mode. Orchestra
 remembers that starting state, so repeated calls during one event never overwrite it.
 
 Works with water heaters, climate entities and plain switches (e.g. a pool heat pump).
+Fixed Boost, Coast and Normal temperatures (and operation modes) can be set per heat
+pump; Boost replaces Conductor's own soak target, which is meant for hot water tanks
+and is far too hot for e.g. a pool heat pump. Coast is set as Load Shed starts, and
+Normal replaces the remembered temperature/mode when the event ends.
+
 When the heat pump has a separate power switch, give it as `power_switch`: the switch
 is turned on and off, and the water heater or climate only has its setpoint set and
 restored.
@@ -68,6 +73,12 @@ def match_operation_mode(mode: str | None, attrs: dict[str, Any]) -> str | None:
     return next((m for m in modes if str(m).lower() == mode.lower()), None)
 
 
+def preset_temperature(call: Any, key: str) -> float | None:
+    """A fixed temperature from the automation; 0 or empty means not set."""
+    value = _as_float(call.data.get(key))
+    return value if value else None
+
+
 def snapshot(domain: str, state: str, attrs: dict[str, Any]) -> dict[str, Any]:
     """What the heat pump is doing now, enough to put it back later."""
     held: dict[str, Any] = {"on": state not in ("off", "idle") if domain != "switch" else state == "on"}
@@ -122,7 +133,7 @@ class HeatPumpController:
         if target_state is None or target_state.state in UNAVAILABLE_STATES:
             return {"skipped": f"{sensor} is {target_state.state if target_state else 'missing'}"}
         phase = directive_phase(target_state.attributes)
-        soak_temperature = _as_float(target_state.state)
+        soak_temperature = preset_temperature(call, "boost_temperature") or _as_float(target_state.state)
 
         switches = call.data.get("power_switch", [])
         results: dict[str, Any] = {}
@@ -166,6 +177,12 @@ class HeatPumpController:
         else:
             self._held[entity_id] = held
         result: dict[str, Any] = {"phase": phase, "was_on": now["on"], "reason": reason}
+        if phase == "shed" and domain in ("water_heater", "climate"):
+            # Coast setpoint first, so it is what the unit holds while switched off
+            try:
+                result.update(await self._async_coast(entity_id, domain, call))
+            except Exception as err:  # noqa: BLE001
+                result["error"] = str(err)
         if apply is None:
             return result
         if phase == "soak" and domain in ("water_heater", "climate"):
@@ -213,17 +230,38 @@ class HeatPumpController:
             await self._async_call("homeassistant", "turn_on", entity_id, {}, call)
         return notes
 
+    async def _async_coast(self, entity_id: str, domain: str, call: Any) -> dict[str, Any]:
+        state = self.hass.states.get(entity_id)
+        temperature = clamp_temperature(preset_temperature(call, "coast_temperature"), state.attributes)
+        data: dict[str, Any] = {}
+        if temperature is not None:
+            data["temperature"] = temperature
+        coast = call.data.get("coast_operation_mode")
+        mode = match_operation_mode(coast, state.attributes) if domain == "water_heater" else None
+        if mode:
+            data["operation_mode"] = mode
+        if not data:
+            return {}
+        if "temperature" in data:
+            await self._async_call(domain, "set_temperature", entity_id, data, call)
+        else:
+            await self._async_call(domain, "set_operation_mode", entity_id, data, call)
+        return {"coast": data}
+
     async def _async_restore(
         self, entity_id: str, domain: str, held: dict[str, Any], call: Any, setpoint_only: bool
     ) -> None:
         if domain == "water_heater":
             data = {k: held[k] for k in ("temperature", "operation_mode") if held.get(k) is not None}
-            if "operation_mode" not in data:
-                # The heater never said which mode it was in; fall back to the configured one
-                state = self.hass.states.get(entity_id)
-                mode = match_operation_mode(call.data.get("normal_operation_mode"), state.attributes if state else {})
-                if mode:
-                    data["operation_mode"] = mode
+            # Fixed Normal presets win over what was remembered
+            state = self.hass.states.get(entity_id)
+            attrs = state.attributes if state else {}
+            normal_temperature = clamp_temperature(preset_temperature(call, "normal_temperature"), attrs)
+            if normal_temperature is not None:
+                data["temperature"] = normal_temperature
+            mode = match_operation_mode(call.data.get("normal_operation_mode"), attrs)
+            if mode:
+                data["operation_mode"] = mode
             if setpoint_only:
                 if data:
                     service = "set_temperature" if "temperature" in data else "set_operation_mode"
@@ -244,8 +282,12 @@ class HeatPumpController:
         elif domain == "climate":
             if not setpoint_only:
                 await self._async_call("climate", "set_hvac_mode", entity_id, {"hvac_mode": held["hvac_mode"]}, call)
-            if (held["on"] or setpoint_only) and held.get("temperature") is not None:
-                await self._async_call("climate", "set_temperature", entity_id, {"temperature": held["temperature"]}, call)
+            state = self.hass.states.get(entity_id)
+            temperature = clamp_temperature(
+                preset_temperature(call, "normal_temperature"), state.attributes if state else {}
+            ) or held.get("temperature")
+            if (held["on"] or setpoint_only) and temperature is not None:
+                await self._async_call("climate", "set_temperature", entity_id, {"temperature": temperature}, call)
         else:
             await self._async_call("homeassistant", "turn_on" if held["on"] else "turn_off", entity_id, {}, call)
 
@@ -284,6 +326,10 @@ async def async_setup_heat_pump_control(hass: Any) -> None:
                 vol.Optional("target_sensor", default=DEFAULT_TARGET_SENSOR): cv.entity_id,
                 vol.Optional("boost_operation_mode", default=""): cv.string,
                 vol.Optional("normal_operation_mode", default=""): cv.string,
+                vol.Optional("coast_operation_mode", default=""): cv.string,
+                vol.Optional("boost_temperature"): vol.Any(None, vol.Coerce(float)),
+                vol.Optional("coast_temperature"): vol.Any(None, vol.Coerce(float)),
+                vol.Optional("normal_temperature"): vol.Any(None, vol.Coerce(float)),
             }
         ),
         supports_response=SupportsResponse.OPTIONAL,
