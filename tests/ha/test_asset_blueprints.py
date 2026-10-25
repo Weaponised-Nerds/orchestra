@@ -322,3 +322,30 @@ async def test_hvac_drifts_a_unit_reporting_string_setpoints(hass, tmp_path) -> 
     assert float(_setpoint(hass)) == 19.0
     await _offset(hass, 0.0)
     assert float(_setpoint(hass)) == 21.0
+
+
+async def test_hvac_drifts_every_selected_zone(hass, tmp_path) -> None:
+    """Zoned A/Cs (AirTouch zone temperature control) are drifted through their zones."""
+    hass.config.config_dir = str(tmp_path)
+    await hass.async_add_executor_job(install_blueprints, tmp_path)
+    await async_setup_hvac_drift(hass)
+
+    async def climate_set_temperature(call: ServiceCall) -> None:
+        state = hass.states.get(call.data["entity_id"])
+        hass.states.async_set(state.entity_id, state.state, {**state.attributes, "temperature": call.data["temperature"]})
+
+    hass.services.async_register("climate", "set_temperature", climate_set_temperature)
+    _set_climate(hass, "heat", 21.0)
+    _set_climate(hass, "heat", 22.0, BEDROOM)
+    _set_offset(hass, 0.0, "idle")
+    assert await async_setup_component(
+        hass,
+        "automation",
+        {"automation": [{"id": "zones", "use_blueprint": {
+            "path": blueprint_path(BLUEPRINT_HVAC_SETPOINT_OFFSET), "input": {"climate_entity": [CLIMATE, BEDROOM]}}}]},
+    )
+    await hass.async_block_till_done()
+    await _offset(hass, 1.5)
+    assert (_setpoint(hass), _setpoint(hass, BEDROOM)) == (19.5, 20.5)
+    await _offset(hass, 0.0)
+    assert (_setpoint(hass), _setpoint(hass, BEDROOM)) == (21.0, 22.0)
