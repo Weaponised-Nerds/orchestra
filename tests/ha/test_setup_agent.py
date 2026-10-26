@@ -151,17 +151,37 @@ async def test_sorts_devices_and_prefills_blueprints(hass: HomeAssistant, agent)
     assert await agent.async_prefill_automations() == []
 
 
-async def test_creates_logins_then_rotates_agent_password(hass: HomeAssistant, agent, local_auth) -> None:
+async def _agent_account(hass: HomeAssistant, local_auth):
+    """The image's agent account: known password plus a long-lived token."""
+    from homeassistant.auth.models import TOKEN_TYPE_LONG_LIVED_ACCESS_TOKEN
+
     await local_auth.async_add_auth(AGENT_USERNAME, "OrchestraAgent2026!")
+    user = await hass.auth.async_create_user("Orchestra-Agent", group_ids=["system-admin"])
+    await hass.auth.async_link_user(user, await local_auth.async_get_or_create_credentials({"username": AGENT_USERNAME}))
+    refresh = await hass.auth.async_create_refresh_token(
+        user, client_name="Image token", token_type=TOKEN_TYPE_LONG_LIVED_ACCESS_TOKEN
+    )
+    return hass.auth.async_create_access_token(refresh)
+
+
+async def test_creates_logins_then_rotates_agent_password(hass: HomeAssistant, agent, local_auth) -> None:
+    image_token = await _agent_account(hass, local_auth)
     creds_file = Path(hass.config.path("orchestra_agent_credentials.json"))
     creds_file.write_text("{}")
 
-    created = await agent.async_setup_users()
-    assert created == ["dee"]
-
+    # Logins first, as soon as Home Assistant starts; the agent's own login still works
+    assert await agent.async_create_logins() == ["dee"]
     await local_auth.async_validate_login("dee", "hunter22-long")
+    await local_auth.async_validate_login(AGENT_USERNAME, "OrchestraAgent2026!")
+    assert hass.auth.async_validate_access_token(image_token) is not None
+
+    # After setup the shared password and token are replaced
+    await agent.async_retire_agent_credentials()
     with pytest.raises(Exception):
         await local_auth.async_validate_login(AGENT_USERNAME, "OrchestraAgent2026!")
+    assert hass.auth.async_validate_access_token(image_token) is None
+    new_token = Path(hass.config.path("orchestra_agent_token.txt")).read_text().strip()
+    assert (hass.auth.async_validate_access_token(new_token)).user.name == "Orchestra-Agent"
     users = {u.name: u for u in await hass.auth.async_get_users()}
     assert any(g.id == "system-admin" for g in users["Dee Ben"].groups)
     assert not creds_file.exists()
@@ -169,6 +189,7 @@ async def test_creates_logins_then_rotates_agent_password(hass: HomeAssistant, a
 
     # Runs once
     assert await agent.async_setup_users() == []
+    assert Path(hass.config.path("orchestra_agent_token.txt")).read_text().strip() == new_token
 
 
 async def test_no_logins_keeps_agent_password(hass: HomeAssistant, tmp_path, local_auth) -> None:
