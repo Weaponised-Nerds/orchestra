@@ -176,8 +176,21 @@ def stage_orchestra_supervisor_payload(
     handover = dist_dir / "orchestra_handover.txt"
     lines = ["Orchestra logins (hand these to the homeowner, then delete this file)", ""]
     lines += [f"{u['name']}: username {u['username']}, password {u['password']}" for u in plan_users]
-    if not plan_users:
+    if plan_users:
+        lines += [
+            "",
+            "These work about a minute after Home Assistant's first start (the first boot downloads",
+            "Home Assistant itself, which can take 10-20 minutes before the login page appears).",
+        ]
+    else:
         lines.append("No logins were set (--user). The agent password stays unchanged until one is added.")
+    lines += [
+        "",
+        "Orchestra-Agent: username orchestra-agent, password OrchestraAgent2026!",
+        "This login and orchestra_agent_token.txt work until the setup agent finishes (up to 15 minutes",
+        "after Home Assistant starts). It then sets a random password and writes a new token to",
+        "/config/orchestra_agent_token.txt on the Pi; the token from this build stops working.",
+    ]
     handover.write_text("\n".join(lines) + "\n", encoding="utf-8")
     handover.chmod(0o600)
 

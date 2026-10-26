@@ -4,13 +4,15 @@ Orchestra setup agent: finishes a fresh Orchestra image's setup inside Home Assi
 It only runs where the image left a setup plan (`.storage/orchestra.setup_plan`), so a
 normal HACS install never has flows confirmed, devices moved or passwords changed.
 
-On first start, once Home Assistant's own discovery has settled, it:
+As soon as Home Assistant has started, it creates the human logins from the plan, so they
+work from the first minute. Then, once Home Assistant's own discovery has settled, it:
 1. sets up the integrations stock onboarding would have (weather, radio, TTS, shopping list),
 2. confirms every discovered device that needs no input, and puts the rest on a punch list,
 3. sorts devices into rooms and labels them by kind of equipment,
 4. fills the Conductor asset blueprints with the matching entities,
-5. creates the human logins from the plan, then gives the Orchestra-Agent account a random
-   password nobody knows (the agent keeps working through its long-lived token).
+5. retires the image's shared agent credentials: the Orchestra-Agent account gets a random
+   password nobody knows, and a fresh long-lived token (written to
+   `<config>/orchestra_agent_token.txt`) replaces the one baked into the image.
 
 It then re-checks every few minutes for a day, so late discoveries are picked up and punch
 list items tick themselves off once the person finishes them.
@@ -129,6 +131,10 @@ class OrchestraSetupAgent:
 
     async def _async_first_run(self) -> None:
         if not self.state.get("completed_at"):
+            created = await self.async_create_logins()
+            if created:
+                await self._async_save_state()
+            self._async_notify_starting(created)
             await self._async_wait_for_discovery()
             await self.async_run_pass(first=True)
         self._schedule_rechecks()
@@ -182,7 +188,8 @@ class OrchestraSetupAgent:
             report["automations"] = await self.async_prefill_automations()
             self._async_check_hacs()
             if first:
-                report["users"] = await self.async_setup_users()
+                report["users"] = list(self.state.get("logins_created", []))
+                await self.async_retire_agent_credentials()
                 self.state["completed_at"] = time.time()
             self._async_tick_off_finished_items()
             await self._async_save_state()
@@ -320,28 +327,19 @@ class OrchestraSetupAgent:
         )
 
     async def async_setup_users(self) -> list[str]:
-        """Create the plan's human logins, then lock the agent's own password away."""
-        if self.state.get("users_done"):
-            return []
+        """Create the plan's human logins, then retire the image's agent credentials."""
+        created = await self.async_create_logins()
+        await self.async_retire_agent_credentials()
+        return created
+
+    async def async_create_logins(self) -> list[str]:
+        """Create the plan's human logins. Safe to repeat: existing usernames are left alone."""
         users = [u for u in self.plan.get("users", []) if u.get("username") and u.get("password")]
         if not users:
-            self._add_punch(
-                PunchItem(
-                    PUNCH_NO_USERS,
-                    "Create your own login",
-                    "No logins were set when this image was built, so the Orchestra-Agent "
-                    "password has not been changed. Add a person under Settings → People.",
-                ),
-            )
             return []
-
-        provider = next(
-            (p for p in self.hass.auth.auth_providers if p.type == "homeassistant"), None
-        )
+        provider = await self._async_login_provider()
         if provider is None:
-            _LOGGER.warning("Orchestra could not find the Home Assistant login provider")
             return []
-        await provider.async_initialize()
 
         created: list[str] = []
         for spec in users:
@@ -358,23 +356,78 @@ class OrchestraSetupAgent:
             await self._async_create_person(user.name, user.id)
             created.append(username)
 
-        if not created:
-            return []
+        self.state["logins_created"] = sorted(set(self.state.get("logins_created", [])) | set(created))
+        # The plan's passwords were only needed once
+        self.plan["users"] = [{k: v for k, v in u.items() if k != "password"} for u in self.plan.get("users", [])]
+        await self._plan_store.async_save(self.plan)
+        return created
 
-        # The agent account keeps its long-lived token; its password becomes one nobody knows
+    async def async_retire_agent_credentials(self) -> None:
+        """
+        Once setup has finished, swap the image's shared agent password and token for new ones.
+
+        Only done once a human login exists, so nobody is ever locked out.
+        """
+        if self.state.get("users_done"):
+            return
+        if not self.state.get("logins_created"):
+            self._add_punch(
+                PunchItem(
+                    PUNCH_NO_USERS,
+                    "Create your own login",
+                    "No logins were set when this image was built, so the Orchestra-Agent "
+                    "password has not been changed. Add a person under Settings → People.",
+                ),
+            )
+            return
+        provider = await self._async_login_provider()
+        if provider is None:
+            return
+
         try:
             await provider.async_change_password(AGENT_USERNAME, secrets.token_urlsafe(32))
         except Exception as err:
             _LOGGER.warning("Orchestra could not change the agent password: %s", err)
         else:
             self.state["agent_password_rotated_at"] = time.time()
+        await self._async_reissue_agent_token()
         await self.hass.async_add_executor_job(_remove_file, Path(self.hass.config.path("orchestra_agent_credentials.json")))
-
-        # The plan's passwords were only needed once
-        self.plan["users"] = [{k: v for k, v in u.items() if k != "password"} for u in self.plan.get("users", [])]
-        await self._plan_store.async_save(self.plan)
         self.state["users_done"] = True
-        return created
+
+    async def _async_reissue_agent_token(self) -> None:
+        """Give the agent a new long-lived token and revoke the one every image shares."""
+        from homeassistant.auth.models import TOKEN_TYPE_LONG_LIVED_ACCESS_TOKEN
+
+        agent = None
+        for user in await self.hass.auth.async_get_users():
+            if any(c.data.get("username") == AGENT_USERNAME for c in user.credentials):
+                agent = user
+                break
+        if agent is None:
+            _LOGGER.warning("Orchestra could not find the agent account to re-issue its token")
+            return
+        old = [t for t in agent.refresh_tokens.values() if t.token_type == TOKEN_TYPE_LONG_LIVED_ACCESS_TOKEN]
+        refresh = await self.hass.auth.async_create_refresh_token(
+            agent,
+            client_name=f"Orchestra agent ({time.strftime('%Y-%m-%d')})",
+            token_type=TOKEN_TYPE_LONG_LIVED_ACCESS_TOKEN,
+            access_token_expiration=timedelta(days=3650),
+        )
+        token = self.hass.auth.async_create_access_token(refresh)
+        await self.hass.async_add_executor_job(
+            _write_private_file, Path(self.hass.config.path("orchestra_agent_token.txt")), token + "\n"
+        )
+        for stale in old:
+            self.hass.auth.async_remove_refresh_token(stale)
+        self.state["agent_token_reissued_at"] = time.time()
+
+    async def _async_login_provider(self) -> Any:
+        provider = next((p for p in self.hass.auth.auth_providers if p.type == "homeassistant"), None)
+        if provider is None:
+            _LOGGER.warning("Orchestra could not find the Home Assistant login provider")
+            return None
+        await provider.async_initialize()
+        return provider
 
     async def _async_create_person(self, name: str, user_id: str) -> None:
         try:
@@ -482,6 +535,17 @@ class OrchestraSetupAgent:
         await self._state_store.async_save(self.state)
 
     @callback
+    def _async_notify_starting(self, created: list[str]) -> None:
+        logins = self.state.get("logins_created", [])
+        lines = ["Orchestra is waiting for Home Assistant to finish finding your devices, then it "
+                 "will set them up. This takes up to 15 minutes."]
+        if logins:
+            lines.append("Your logins are ready: " + ", ".join(logins) + ".")
+        persistent_notification.async_create(
+            self.hass, "\n\n".join(lines), title="Orchestra is setting up your home", notification_id=NOTIFICATION_ID
+        )
+
+    @callback
     def _async_notify(self, report: dict[str, Any]) -> None:
         flows = report.get("flows", {})
         lines = [
@@ -494,6 +558,8 @@ class OrchestraSetupAgent:
         users = report.get("users") or []
         if users:
             lines.append("Created logins: " + ", ".join(users) + ".")
+        if self.state.get("users_done"):
+            lines.append("The Orchestra-Agent password and token from the image have been replaced.")
         open_items = self.open_items
         if open_items:
             lines.append(
@@ -531,3 +597,8 @@ def _remove_file(path: Path) -> None:
         path.unlink()
     except FileNotFoundError:
         pass
+
+
+def _write_private_file(path: Path, text: str) -> None:
+    path.write_text(text, encoding="utf-8")
+    path.chmod(0o600)
