@@ -9,10 +9,15 @@ import tempfile
 import unittest
 import zipfile
 import json
+import shutil
 
 from haos_image.build_rpi_image import (
     MTOOLS_DIR,
     _build_gpt_disk_with_fat32_boot,
+    _e2fs_tool,
+    _write_gpt_headers,
+    grow_last_gpt_partition,
+    inject_supervisor_payload_into_ext4_partition,
     parse_gpt_partitions,
     parse_user_spec,
     stage_boot_and_config_overlay,
@@ -111,3 +116,73 @@ class TestRPi3ImageBuilder(unittest.TestCase):
         ).stdout
         self.assertIn("CONFIG", mdir_out)
         self.assertIn("ORCHESTR", mdir_out.upper())
+
+
+def _have_e2fsprogs() -> bool:
+    try:
+        return all(_e2fs_tool(name) for name in ("debugfs", "e2fsck", "resize2fs", "mke2fs"))
+    except RuntimeError:
+        return False
+
+
+@unittest.skipUnless(_have_e2fsprogs(), "needs e2fsprogs")
+class TestDataPartitionInjection(unittest.TestCase):
+    """The payload must land intact even though the stock `hassos-data` is nearly full."""
+
+    def test_grows_a_full_data_partition_and_copies_every_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            mib = 1024 * 1024
+            img = work / "disk.img"
+            total_sectors = 48 * mib // 512
+            with img.open("wb") as f:
+                f.truncate(total_sectors * 512)
+            # A boot partition, then an 8 MiB data partition at the end, like HAOS
+            _write_gpt_headers(img, total_sectors, [("hassos-boot", 2048, 34815), ("hassos-data", 34816, 51199)])
+            data = parse_gpt_partitions(img)[1]
+
+            # Format the data partition, add `/supervisor` as the stock image has it, then fill it
+            part = work / "p.img"
+            with part.open("wb") as f:
+                f.truncate(data["size_bytes"])
+            subprocess.run([str(_e2fs_tool("mke2fs")), "-q", "-F", "-t", "ext4", "-L", "hassos-data", str(part)], check=True)
+            filler = work / "filler.bin"
+            filler.write_bytes(b"x" * (5 * mib))
+            debugfs = str(_e2fs_tool("debugfs"))
+            subprocess.run([debugfs, "-w", "-R", "mkdir /supervisor", str(part)], check=True, capture_output=True)
+            subprocess.run([debugfs, "-w", "-R", f"write {filler} /filler", str(part)], check=True, capture_output=True)
+            with img.open("r+b") as f:
+                f.seek(data["offset_bytes"])
+                f.write(part.read_bytes())
+
+            staging = work / "staging"
+            files = staging / "homeassistant" / "custom_components" / "orchestra"
+            files.mkdir(parents=True)
+            for i in range(8):
+                (files / f"module_{i}.py").write_bytes(bytes([65 + i]) * (512 * 1024))
+
+            grown = grow_last_gpt_partition(img, 16 * mib)
+            self.assertEqual(grown["partition_index"], 2)
+            data = parse_gpt_partitions(img)[1]
+            self.assertEqual(data["size_bytes"], 24 * mib)
+            self.assertEqual(img.stat().st_size, 64 * mib)
+
+            build = work / "build"
+            build.mkdir()
+            result = inject_supervisor_payload_into_ext4_partition(
+                img, data["offset_bytes"], data["size_bytes"], staging, build
+            )
+            self.assertEqual(result["files_written"], 8)
+
+            with img.open("rb") as f:
+                f.seek(data["offset_bytes"])
+                part.write_bytes(f.read(data["size_bytes"]))
+            self.assertEqual(subprocess.run([str(_e2fs_tool("e2fsck")), "-fn", str(part)], capture_output=True).returncode, 0)
+            out = work / "out"
+            out.mkdir()
+            subprocess.run([debugfs, "-R", f"rdump /supervisor/homeassistant {out}", str(part)], check=True, capture_output=True)
+            for src in files.iterdir():
+                copied = out / "homeassistant" / "custom_components" / "orchestra" / src.name
+                self.assertEqual(copied.read_bytes(), src.read_bytes())
+            if shutil.which("sgdisk"):
+                self.assertIn("No problems found", subprocess.run(["sgdisk", "-v", str(img)], capture_output=True, text=True).stdout)

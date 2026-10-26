@@ -65,11 +65,28 @@ if not (MTOOLS_DIR / "mformat").exists() and shutil.which("mformat"):
 XZ_BIN = Path("/opt/homebrew/bin/xz")
 if not XZ_BIN.exists() and shutil.which("xz"):
     XZ_BIN = Path(shutil.which("xz"))  # type: ignore[arg-type]
-DEBUGFS_BIN = Path("/opt/homebrew/opt/e2fsprogs/sbin/debugfs")
+E2FSPROGS_DIR = Path("/opt/homebrew/opt/e2fsprogs/sbin")
+
+
+def _e2fs_tool(name: str) -> Path:
+    """An e2fsprogs tool (debugfs, e2fsck, resize2fs) from Homebrew on the Mac, else from PATH."""
+    if (E2FSPROGS_DIR / name).exists():
+        return E2FSPROGS_DIR / name
+    for found in (shutil.which(name), shutil.which(name, path="/usr/sbin:/sbin")):
+        if found:
+            return Path(found)
+    raise RuntimeError(f"{name} (from e2fsprogs) is required to build the image. Install with: brew install e2fsprogs")
+
+
+DEBUGFS_BIN = E2FSPROGS_DIR / "debugfs"
 if not DEBUGFS_BIN.exists():
     sh_debugfs = shutil.which("debugfs")
     if sh_debugfs:
         DEBUGFS_BIN = Path(sh_debugfs)
+
+# The official images ship `hassos-data` with almost no free space (HAOS grows it to fill the
+# card on first boot), so it is grown by this much before the payload is copied in
+DATA_PARTITION_GROWTH_BYTES = 512 * 1024 * 1024
 
 
 def parse_user_spec(spec: str) -> dict[str, Any]:
@@ -602,6 +619,93 @@ def _write_gpt_headers(
         f.write(backup_hdr)
 
 
+def grow_last_gpt_partition(img_path: Path, extra_bytes: int) -> dict[str, Any]:
+    """
+    Make the image `extra_bytes` larger and give the space to its last partition (`hassos-data`).
+
+    Rewrites the protective MBR and both GPT headers and entry arrays, keeping every GUID, so
+    HAOS still finds its partitions and still grows `hassos-data` to fill the card on first boot.
+    """
+    extra_sectors = (extra_bytes // (1024 * 1024)) * 2048  # whole MiB, so the partition stays aligned
+    with img_path.open("r+b") as f:
+        f.seek(512)
+        header = bytearray(f.read(92))
+        if header[:8] != b"EFI PART":
+            raise RuntimeError(f"{img_path} has no GPT")
+        last_usable = struct.unpack_from("<Q", header, 48)[0]
+        entries_lba, num_entries, entry_size = struct.unpack_from("<QII", header, 72)
+        entries_sectors = (num_entries * entry_size + 511) // 512
+        f.seek(entries_lba * 512)
+        entries = bytearray(f.read(num_entries * entry_size))
+
+        used = [
+            (struct.unpack_from("<Q", entries, i * entry_size + 40)[0], i)
+            for i in range(num_entries)
+            if entries[i * entry_size : i * entry_size + 16] != b"\x00" * 16
+        ]
+        last_lba, last_idx = max(used)
+        old_total = img_path.stat().st_size // 512
+        new_total = old_total + extra_sectors
+        new_last_lba = last_lba + extra_sectors
+        struct.pack_into("<Q", entries, last_idx * entry_size + 40, new_last_lba)
+        entries_crc = binascii.crc32(entries) & 0xFFFFFFFF
+
+        def make_header(my_lba: int, alt_lba: int, my_entries_lba: int) -> bytes:
+            hdr = bytearray(header)
+            struct.pack_into("<QQ", hdr, 24, my_lba, alt_lba)
+            struct.pack_into("<Q", hdr, 48, last_usable + extra_sectors)
+            struct.pack_into("<Q", hdr, 72, my_entries_lba)
+            struct.pack_into("<I", hdr, 88, entries_crc)
+            struct.pack_into("<I", hdr, 16, 0)
+            struct.pack_into("<I", hdr, 16, binascii.crc32(hdr) & 0xFFFFFFFF)
+            return bytes(hdr).ljust(512, b"\x00")
+
+        f.seek((old_total - 1) * 512)  # the old backup header now sits inside hassos-data
+        f.write(b"\x00" * 512)
+        f.truncate(new_total * 512)
+
+        f.seek(450)  # protective MBR: partition type 0xEE should cover the whole disk
+        if f.read(1) == b"\xee":
+            f.seek(458)
+            f.write(struct.pack("<I", min(new_total - 1, 0xFFFFFFFF)))
+        f.seek(512)
+        f.write(make_header(1, new_total - 1, entries_lba))
+        f.seek(entries_lba * 512)
+        f.write(entries)
+        backup_entries_lba = new_total - 1 - entries_sectors
+        f.seek(backup_entries_lba * 512)
+        f.write(entries)
+        f.seek((new_total - 1) * 512)
+        f.write(make_header(new_total - 1, 1, backup_entries_lba))
+
+    return {"partition_index": last_idx + 1, "old_last_lba": last_lba, "new_last_lba": new_last_lba}
+
+
+def _verify_injected_tree(debugfs_bin: Path, p8_img: Path, staging_supervisor_dir: Path, build_dir: Path) -> None:
+    """Read the payload back out of the partition and fail the build if any file differs."""
+    check_dir = build_dir / "inject_check"
+    if check_dir.exists():
+        shutil.rmtree(check_dir)
+    check_dir.mkdir()
+    subprocess.run(
+        [str(debugfs_bin), "-R", f"rdump /supervisor {check_dir}", str(p8_img)],
+        capture_output=True,
+        check=True,
+    )
+    bad = [
+        str(p.relative_to(staging_supervisor_dir))
+        for p in staging_supervisor_dir.rglob("*")
+        if p.is_file()
+        and (
+            not (check_dir / "supervisor" / p.relative_to(staging_supervisor_dir)).is_file()
+            or (check_dir / "supervisor" / p.relative_to(staging_supervisor_dir)).read_bytes() != p.read_bytes()
+        )
+    ]
+    shutil.rmtree(check_dir)
+    if bad:
+        raise RuntimeError(f"{len(bad)} files did not copy into hassos-data intact, e.g. {bad[:5]}")
+
+
 def inject_supervisor_payload_into_ext4_partition(
     work_img: Path,
     data_partition_offset_bytes: int,
@@ -633,6 +737,12 @@ def inject_supervisor_payload_into_ext4_partition(
             f_dst.write(chunk)
             remaining -= len(chunk)
 
+    # Grow the ext4 filesystem into the space `grow_last_gpt_partition` gave the partition
+    fsck = subprocess.run([str(_e2fs_tool("e2fsck")), "-fy", str(p8_img)], capture_output=True, text=True)
+    if fsck.returncode > 1:  # 1 means it fixed something, which is fine
+        raise RuntimeError(f"e2fsck failed with exit code {fsck.returncode}: {fsck.stdout}{fsck.stderr}")
+    subprocess.run([str(_e2fs_tool("resize2fs")), str(p8_img)], capture_output=True, text=True, check=True)
+
     # 2. Collect all directories and files relative to staging_supervisor_dir
     commands: list[str] = []
     all_dirs: list[str] = []
@@ -648,12 +758,20 @@ def inject_supervisor_payload_into_ext4_partition(
 
     all_dirs.sort(key=lambda d: len(d.split("/")))
 
-    commands.append("mkdir /supervisor")
-    for d in all_dirs:
-        commands.append(f"mkdir {d}")
+    # A `mkdir` of a directory that already exists (the stock image has `/supervisor`) leaves
+    # debugfs handing the next directory a block that is already in use, so skip those
+    for d in ["/supervisor"] + all_dirs:
+        exists = subprocess.run([str(debugfs_bin), "-R", f"stat {d}", str(p8_img)], capture_output=True, text=True)
+        if "Inode:" not in exists.stdout:
+            commands.append(f"mkdir {d}")
 
     for src_file, target_path in all_files:
         commands.append(f"write {src_file} {target_path}")
+
+    # `write` keeps the builder's own uid/gid (501 on a Mac); Home Assistant's files belong to root
+    for target_path in all_dirs + [t for _, t in all_files]:
+        commands.append(f"sif {target_path} uid 0")
+        commands.append(f"sif {target_path} gid 0")
 
     script_path = build_dir / "inject_supervisor.debugfs"
     script_path.write_text("\n".join(commands) + "\n", encoding="utf-8")
@@ -666,6 +784,11 @@ def inject_supervisor_payload_into_ext4_partition(
     )
     if res.returncode != 0:
         raise RuntimeError(f"debugfs failed with exit code {res.returncode}: {res.stderr}")
+    # debugfs exits 0 even when a write runs out of space, so read everything back to be sure
+    _verify_injected_tree(debugfs_bin, p8_img, staging_supervisor_dir, build_dir)
+    check = subprocess.run([str(_e2fs_tool("e2fsck")), "-fn", str(p8_img)], capture_output=True, text=True)
+    if check.returncode != 0:
+        raise RuntimeError(f"hassos-data has filesystem errors after the copy: {check.stdout[-2000:]}")
 
     # 4. Write modified partition back into work_img
     with p8_img.open("rb") as f_src, work_img.open("r+b") as f_dst:
@@ -711,6 +834,13 @@ def patch_official_haos_image(
         shutil.copy2(base_xz_or_img, work_img)
 
     partitions = parse_gpt_partitions(work_img)
+    data_part = next((p for p in partitions if "data" in p["name"].lower()), None)
+    grown = None
+    if data_part and staging_supervisor_dir and staging_supervisor_dir.exists():
+        if data_part["last_lba"] != max(p["last_lba"] for p in partitions):
+            raise RuntimeError("hassos-data is not the last partition, so it cannot be grown")
+        grown = grow_last_gpt_partition(work_img, DATA_PARTITION_GROWTH_BYTES)
+        partitions = parse_gpt_partitions(work_img)
     boot_part = next((p for p in partitions if "boot" in p["name"].lower()), partitions[0])
     inject_boot_overlay_with_mtools(
         work_img,
@@ -742,6 +872,7 @@ def patch_official_haos_image(
         "patched_official_image_raw": str(raw_dist_img),
         "boot_partition_injected": boot_part,
         "data_partition_injected": ext4_result,
+        "data_partition_grown": grown,
         "total_gpt_partitions": len(partitions),
         "all_gpt_partitions": partitions,
     }

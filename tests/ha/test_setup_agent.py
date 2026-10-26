@@ -107,9 +107,8 @@ async def test_sorts_devices_and_prefills_blueprints(hass: HomeAssistant, agent)
     ent_reg = er.async_get(hass)
 
     unit = dev_reg.async_get_or_create(config_entry_id=entry.entry_id, identifiers={("airtouch", "ac")}, name="AirTouch AC")
-    zone = dev_reg.async_get_or_create(
-        config_entry_id=entry.entry_id, identifiers={("airtouch", "z1")}, name="Lounge zone", via_device=("airtouch", "ac")
-    )
+    zone = dev_reg.async_get_or_create(config_entry_id=entry.entry_id, identifiers={("airtouch", "z1")}, name="Lounge zone")
+    zone = dev_reg.async_update_device(zone.id, via_device_id=unit.id)
     pool = dev_reg.async_get_or_create(config_entry_id=entry.entry_id, identifiers={("tuya", "hp")}, name="Pool heat pump")
     charger = dev_reg.async_get_or_create(config_entry_id=entry.entry_id, identifiers={("tesla", "wc")}, name="Wall Connector")
 
