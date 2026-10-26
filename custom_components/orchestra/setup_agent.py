@@ -259,7 +259,13 @@ class OrchestraSetupAgent:
                 label_ids[name] = (existing or label_reg.async_create(name)).label_id
 
         rooms = labelled = 0
-        for device in list(dev_reg.devices.values()):
+        # Every device that belongs to an integration (newer cores no longer let `devices` be read as a dict)
+        devices = {
+            device.id: device
+            for entry in self.hass.config_entries.async_entries()
+            for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id)
+        }
+        for device in devices.values():
             if device.disabled_by or getattr(device, "entry_type", None) == dr.DeviceEntryType.SERVICE:
                 continue
             infos = by_device.get(device.id, [])
