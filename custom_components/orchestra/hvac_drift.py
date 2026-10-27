@@ -287,7 +287,7 @@ async def async_setup_hvac_drift(hass: Any) -> None:
     if services.has_service(DOMAIN, SERVICE_APPLY_HVAC_OFFSET):
         return
     try:
-        import voluptuous as vol
+        from .schema import vol
         from homeassistant.core import SupportsResponse
         from homeassistant.helpers import config_validation as cv
     except ImportError:

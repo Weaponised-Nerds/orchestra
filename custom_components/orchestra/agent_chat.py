@@ -18,8 +18,6 @@ from typing import Any, Callable
 import uuid
 
 import aiohttp
-import voluptuous as vol
-from voluptuous_openapi import convert
 
 from homeassistant.components import websocket_api
 from homeassistant.core import Context, HomeAssistant, callback
@@ -28,6 +26,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 
 from .const import DOMAIN
+from .schema import to_openapi, vol
 from .setup_tools import SETUP_API_ID, SETUP_PROMPT
 
 _LOGGER = logging.getLogger(__name__)
@@ -102,7 +101,7 @@ class OrchestraChatAgent:
             api = await llm.async_get_api(self.hass, SETUP_API_ID, llm_context)
             tools = {tool.name: tool for tool in api.tools}
             tool_defs = [
-                {"name": t.name, "description": t.description or "", "input_schema": convert(t.parameters)}
+                {"name": t.name, "description": t.description or "", "input_schema": to_openapi(t.parameters)}
                 for t in api.tools
             ]
 
@@ -152,6 +151,8 @@ class OrchestraChatAgent:
                 result = await tool.async_call(
                     self.hass, llm.ToolInput(tool_name=tool.name, tool_args=args), llm_context
                 )
+                if hasattr(result, "data"):  # a ToolResult (Home Assistant 2026.10)
+                    result, is_error = result.data, bool(result.error)
             except vol.Invalid as err:
                 result, is_error = {"error": f"Invalid arguments: {err}"}, True
             except Exception as err:  # a tool must never end the conversation

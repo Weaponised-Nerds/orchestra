@@ -32,7 +32,7 @@ try:
     from homeassistant import config_entries
     from homeassistant.data_entry_flow import FlowResult
     from homeassistant.helpers import config_validation as cv
-    import voluptuous as vol
+    from .schema import vol
     _string_validator = cv.string
 except ImportError:
     _string_validator = str

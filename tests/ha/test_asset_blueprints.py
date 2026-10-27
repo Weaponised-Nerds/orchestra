@@ -12,6 +12,9 @@ import pytest
 
 pytest.importorskip("pytest_homeassistant_custom_component")
 
+# The HVAC blueprint polls every 5 minutes; its timer outlives the test, which is fine
+pytestmark = pytest.mark.parametrize("expected_lingering_timers", [True])
+
 from homeassistant.core import HomeAssistant, ServiceCall  # noqa: E402
 from homeassistant.setup import async_setup_component  # noqa: E402
 

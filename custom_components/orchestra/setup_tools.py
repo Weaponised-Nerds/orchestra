@@ -15,12 +15,11 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-import voluptuous as vol
-
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar, device_registry as dr, llm
 
 from .const import DOMAIN
+from .schema import to_field_list, vol
 
 SETUP_API_ID = "orchestra_setup"
 SETUP_API_NAME = "Orchestra Setup"
@@ -66,15 +65,22 @@ class OrchestraSetupAPI(llm.API):
 class _AdminTool(llm.Tool):
     """A tool that only an admin may call, as with the Devices & services page."""
 
+    integration = DOMAIN  # Home Assistant 2026.10 asks which integration provides a tool
+
     async def async_call(
         self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
-    ) -> dict[str, Any]:
+    ) -> Any:
         user_id = llm_context.context.user_id if llm_context.context else None
+        result: dict[str, Any] | None = None
         if user_id is not None:
             user = await hass.auth.async_get_user(user_id)
             if user is None or not user.is_admin:
-                return {"error": "Only a Home Assistant administrator can set up devices."}
-        return await self._async_run(hass, tool_input.tool_args)
+                result = {"error": "Only a Home Assistant administrator can set up devices."}
+        if result is None:
+            result = await self._async_run(hass, tool_input.tool_args)
+        # Home Assistant 2026.10 wants a ToolResult; older versions take the plain dict
+        tool_result = getattr(llm, "ToolResult", None)
+        return tool_result(data=result, error="error" in result) if tool_result else result
 
     async def _async_run(self, hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
         raise NotImplementedError
@@ -267,11 +273,9 @@ def _serialize_fields(data_schema: Any) -> list[dict[str, Any]]:
     if data_schema is None:
         return []
     try:
-        import voluptuous_serialize
-
         from homeassistant.helpers import config_validation as cv
 
-        return voluptuous_serialize.convert(data_schema, custom_serializer=cv.custom_serializer)
+        return to_field_list(data_schema, custom_serializer=cv.custom_serializer)
     except Exception:  # an unusual schema: still say which fields exist
         keys = getattr(data_schema, "schema", {}) or {}
         return [{"name": str(getattr(k, "schema", k)), "required": type(k).__name__ == "Required"} for k in keys]

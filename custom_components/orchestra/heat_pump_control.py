@@ -307,7 +307,7 @@ async def async_setup_heat_pump_control(hass: Any) -> None:
     if services.has_service(DOMAIN, SERVICE_APPLY_HEAT_PUMP):
         return
     try:
-        import voluptuous as vol
+        from .schema import vol
         from homeassistant.core import SupportsResponse
         from homeassistant.helpers import config_validation as cv
     except ImportError:
