@@ -16,7 +16,7 @@ import re
 from typing import Any
 
 try:
-    import voluptuous as vol
+    from .schema import vol
 
     _UNDEFINED: Any = vol.UNDEFINED
 except ImportError:  # unit tests outside Home Assistant

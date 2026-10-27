@@ -14,7 +14,7 @@ import pytest
 
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-import voluptuous as vol  # noqa: E402
+from custom_components.orchestra.schema import vol  # noqa: E402
 import yaml  # noqa: E402
 
 from homeassistant import config_entries  # noqa: E402

@@ -14,7 +14,7 @@ import pytest
 
 pytest.importorskip("pytest_homeassistant_custom_component")
 
-import voluptuous as vol  # noqa: E402
+from custom_components.orchestra.schema import vol  # noqa: E402
 
 from homeassistant import config_entries  # noqa: E402
 from homeassistant.core import Context, HomeAssistant  # noqa: E402
@@ -61,7 +61,8 @@ def _context(user_id: str | None) -> llm.LLMContext:
 
 async def _call(hass: HomeAssistant, user_id: str | None, tool: str, **args):
     api = await llm.async_get_api(hass, SETUP_API_ID, _context(user_id))
-    return await api.async_call_tool(llm.ToolInput(tool_name=tool, tool_args=args))
+    result = await api.async_call_tool(llm.ToolInput(tool_name=tool, tool_args=args))
+    return getattr(result, "data", result)  # a ToolResult from Home Assistant 2026.10
 
 
 @pytest.fixture
