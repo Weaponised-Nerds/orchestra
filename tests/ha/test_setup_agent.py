@@ -248,6 +248,14 @@ async def test_image_first_boot_end_to_end(
         notification = _async_get_or_create_notifications(hass)["orchestra_setup"]
         assert "Connect HACS to GitHub" in notification["message"]
         assert "Created logins: dee." in notification["message"]
+
+        # The setup assistant is on every page and in the sidebar, with nothing else installed
+        from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL, DATA_PANELS
+
+        assert "orchestra-setup" in hass.data[DATA_PANELS]
+        assert hass.data[DATA_PANELS]["orchestra-setup"].require_admin
+        assert any("orchestra-agent.js" in url for url in hass.data[DATA_EXTRA_MODULE_URL].urls)
+        assert "chat_agent" in hass.data["orchestra"]
         assert agent.state["users_done"] and agent.state["completed_at"]
         await local_auth.async_validate_login("dee", "hunter22-long")
         await agent._async_stop()

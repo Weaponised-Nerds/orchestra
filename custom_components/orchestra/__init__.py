@@ -204,6 +204,43 @@ def _async_register_setup_tools(hass: Any) -> None:
         _LOGGER.debug("Orchestra Setup tools not registered: %s", err)
 
 
+AGENT_JS_URL = "/orchestra_static/orchestra-agent.js"
+AGENT_PANEL_PATH = "orchestra-setup"
+
+
+async def _async_start_chat_agent(hass: Any) -> None:
+    """Put the setup assistant on every HA page (drawer) and in the sidebar (panel)."""
+    if "chat_agent" in hass.data.get(DOMAIN, {}) or not hasattr(hass, "http"):
+        return
+    try:
+        from pathlib import Path
+
+        from homeassistant.components import frontend, panel_custom
+        from homeassistant.components.http import StaticPathConfig
+        from homeassistant.loader import async_get_integration
+
+        from .agent_chat import OrchestraChatAgent, async_register_websocket_commands
+
+        hass.data.setdefault(DOMAIN, {})["chat_agent"] = await OrchestraChatAgent.async_load(hass)
+        async_register_websocket_commands(hass)
+        js_path = Path(__file__).parent / "frontend" / "orchestra-agent.js"
+        await hass.http.async_register_static_paths([StaticPathConfig(AGENT_JS_URL, str(js_path), False)])
+        version = (await async_get_integration(hass, DOMAIN)).version
+        module_url = f"{AGENT_JS_URL}?v={version}"
+        frontend.add_extra_js_url(hass, module_url)
+        await panel_custom.async_register_panel(
+            hass,
+            frontend_url_path=AGENT_PANEL_PATH,
+            webcomponent_name="orchestra-agent-panel",
+            sidebar_title="Setup assistant",
+            sidebar_icon="mdi:robot-happy-outline",
+            module_url=module_url,
+            require_admin=True,
+        )
+    except Exception as err:  # the rest of Orchestra keeps working without the assistant
+        _LOGGER.warning("Orchestra setup assistant not started: %s", err)
+
+
 async def async_setup_entry(hass: Any, entry: Any) -> bool:
     """Set up Orchestra from a Home Assistant ConfigEntry."""
     hass.data.setdefault(DOMAIN, {})
@@ -251,6 +288,7 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
     await _async_install_blueprints(hass)
     await _async_start_setup_agent(hass)
     _async_register_setup_tools(hass)
+    await _async_start_chat_agent(hass)
     await async_setup_hvac_drift(hass)
     await async_setup_heat_pump_control(hass)
 

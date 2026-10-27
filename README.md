@@ -41,13 +41,17 @@ rest into a short punch list.
    It re-checks every 10 minutes for a day, so late discoveries are picked up and punch list items
    tick themselves off once the person finishes them. The matching rules live in
    [`setup_planner.py`](custom_components/orchestra/setup_planner.py).
-5. **An AI agent can finish the punch list with the person ([`setup_tools.py`](custom_components/orchestra/setup_tools.py)).**
-   Orchestra registers an **Orchestra Setup** tool set that Home Assistant's MCP Server can
-   publish. The agent reads the punch list and the discovered devices, shows each device's setup
-   form, submits the pairing code, serial number or choice the person gives it, starts adding an
-   integration HA didn't discover, and ticks items off. Every tool needs an admin login, and none
-   can delete anything. To use it, add (or re-add) the **Model Context Protocol Server**
-   integration and tick both *Assist* and *Orchestra Setup*.
+5. **A setup assistant finishes the punch list with the person ([`agent_chat.py`](custom_components/orchestra/agent_chat.py)).**
+   A **Setup** tab on the right edge of every Home Assistant page (and the Companion app) opens a
+   chat drawer; the **Setup assistant** sidebar panel shows the same chat full-page. Both are for
+   admins only, and on a fresh box the drawer opens by itself. The assistant is a Claude agent
+   whose loop runs inside Home Assistant: it reads the punch list and the discovered devices,
+   asks for a pairing code or a photo of a label, and submits it through the **Orchestra Setup**
+   tools ([`setup_tools.py`](custom_components/orchestra/setup_tools.py)), which can't delete
+   anything. Nothing else needs installing. Model calls go through Conductor's relay
+   (`/api/orchestra/agent/messages`), which holds the API key and limits each box per day;
+   conversations stay in Home Assistant's memory and are not stored anywhere. The same tools are
+   also offered to Home Assistant's MCP Server, for anyone who prefers their own Claude app.
 
 The in-process integration also enforces **hardware warranty guardrails**
 ([`safety_guard.py`](custom_components/orchestra/safety_guard.py)): a 10-minute compressor dwell,
