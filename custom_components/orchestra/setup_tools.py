@@ -324,6 +324,12 @@ async def _async_describe_step(hass: HomeAssistant, domain: str, result: dict[st
             flow_id=result.get("flow_id"),
             message="This step is a sign-in on the maker's website. It is parked for now; leave it on the list.",
         )
-    else:  # progress steps
-        out.update(flow_id=result.get("flow_id"), step=step_id, message="Home Assistant is still working on this step.")
+    else:  # progress steps, such as HACS waiting for its GitHub device code to be entered
+        out.update(
+            flow_id=result.get("flow_id"),
+            step=step_id,
+            instructions=_fill(strings.get(f"{base}.progress.{result.get('progress_action')}"), placeholders),
+            details=placeholders or None,
+            message="Home Assistant is waiting on this step. Check again with orchestra_get_setup_form.",
+        )
     return out
