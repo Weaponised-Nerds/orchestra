@@ -41,6 +41,13 @@ rest into a short punch list.
    It re-checks every 10 minutes for a day, so late discoveries are picked up and punch list items
    tick themselves off once the person finishes them. The matching rules live in
    [`setup_planner.py`](custom_components/orchestra/setup_planner.py).
+5. **An AI agent can finish the punch list with the person ([`setup_tools.py`](custom_components/orchestra/setup_tools.py)).**
+   Orchestra registers an **Orchestra Setup** tool set that Home Assistant's MCP Server can
+   publish. The agent reads the punch list and the discovered devices, shows each device's setup
+   form, submits the pairing code, serial number or choice the person gives it, starts adding an
+   integration HA didn't discover, and ticks items off. Every tool needs an admin login, and none
+   can delete anything. To use it, add (or re-add) the **Model Context Protocol Server**
+   integration and tick both *Assist* and *Orchestra Setup*.
 
 The in-process integration also enforces **hardware warranty guardrails**
 ([`safety_guard.py`](custom_components/orchestra/safety_guard.py)): a 10-minute compressor dwell,

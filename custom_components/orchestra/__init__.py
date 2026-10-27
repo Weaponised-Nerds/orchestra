@@ -190,6 +190,20 @@ async def _async_start_setup_agent(hass: Any) -> None:
         agent.async_start()
 
 
+def _async_register_setup_tools(hass: Any) -> None:
+    """Offer the Orchestra Setup tools to Home Assistant's MCP Server (once per run)."""
+    if "setup_tools_unregister" in hass.data.get(DOMAIN, {}) or not hasattr(hass, "auth"):
+        return
+    try:
+        from .setup_tools import async_register_setup_tools
+    except ImportError:  # outside Home Assistant
+        return
+    try:
+        hass.data.setdefault(DOMAIN, {})["setup_tools_unregister"] = async_register_setup_tools(hass)
+    except Exception as err:  # Home Assistant before the LLM API helpers
+        _LOGGER.debug("Orchestra Setup tools not registered: %s", err)
+
+
 async def async_setup_entry(hass: Any, entry: Any) -> bool:
     """Set up Orchestra from a Home Assistant ConfigEntry."""
     hass.data.setdefault(DOMAIN, {})
@@ -236,6 +250,7 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
 
     await _async_install_blueprints(hass)
     await _async_start_setup_agent(hass)
+    _async_register_setup_tools(hass)
     await async_setup_hvac_drift(hass)
     await async_setup_heat_pump_control(hass)
 
@@ -254,6 +269,9 @@ async def async_unload_entry(hass: Any, entry: Any) -> bool:
         subscriber = hass.data[DOMAIN].get("subscriber")
         if subscriber:
             await subscriber.async_stop()
+        unregister_tools = hass.data[DOMAIN].pop("setup_tools_unregister", None)
+        if unregister_tools:
+            unregister_tools()
 
     if hasattr(hass, "config_entries") and hasattr(hass.config_entries, "async_unload_platforms"):
         return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
