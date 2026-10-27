@@ -24,6 +24,7 @@ import asyncio
 from datetime import timedelta
 import logging
 from pathlib import Path
+import re
 import secrets
 import time
 from typing import Any, Callable
@@ -36,7 +37,7 @@ from homeassistant.helpers import (
     device_registry as dr,
     entity_registry as er,
 )
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.storage import Store
 
@@ -76,6 +77,9 @@ MAX_STEPS_PER_FLOW = 4
 
 PUNCH_HACS = "hacs"
 PUNCH_NO_USERS = "users"
+USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,31}$")
+MIN_PASSWORD_LENGTH = 8
+AGENT_SIGN_OUT_SECONDS = 3
 NOTIFICATION_ID = "orchestra_setup"
 
 UpdateListener = Callable[[], None]
@@ -95,6 +99,7 @@ class OrchestraSetupAgent:
         self._state_store: Store = Store(hass, STORAGE_VERSION, SETUP_STATE_KEY)
         self._listeners: list[UpdateListener] = []
         self._lock = asyncio.Lock()
+        self._claim_lock = asyncio.Lock()
         self._unsub_recheck: Callable[[], None] | None = None
         self._task: asyncio.Task | None = None
 
@@ -345,15 +350,12 @@ class OrchestraSetupAgent:
         for spec in users:
             username = str(spec["username"]).strip().lower()
             try:
-                await provider.async_add_auth(username, str(spec["password"]))
+                await self._async_add_login(
+                    provider, spec.get("name") or username, username, str(spec["password"]), spec.get("admin", True)
+                )
             except Exception as err:  # most often: the username already exists
                 _LOGGER.info("Orchestra did not add login %s: %s", username, err)
                 continue
-            group = "system-admin" if spec.get("admin", True) else "system-users"
-            user = await self.hass.auth.async_create_user(spec.get("name") or username, group_ids=[group])
-            credentials = await provider.async_get_or_create_credentials({"username": username})
-            await self.hass.auth.async_link_user(user, credentials)
-            await self._async_create_person(user.name, user.id)
             created.append(username)
 
         self.state["logins_created"] = sorted(set(self.state.get("logins_created", [])) | set(created))
@@ -361,6 +363,75 @@ class OrchestraSetupAgent:
         self.plan["users"] = [{k: v for k, v in u.items() if k != "password"} for u in self.plan.get("users", [])]
         await self._plan_store.async_save(self.plan)
         return created
+
+    async def _async_add_login(self, provider: Any, name: str, username: str, password: str, admin: bool) -> None:
+        await provider.async_add_auth(username, password)
+        group = "system-admin" if admin else "system-users"
+        user = await self.hass.auth.async_create_user(name, group_ids=[group])
+        credentials = await provider.async_get_or_create_credentials({"username": username})
+        await self.hass.auth.async_link_user(user, credentials)
+        await self._async_create_person(user.name, user.id)
+
+    # ------------------------------------------------------------------ claiming the box
+
+    @property
+    def claim_needed(self) -> bool:
+        """True until a person has their own login on this box."""
+        return not self.state.get("logins_created")
+
+    async def async_claim(self, name: str, username: str, password: str) -> str:
+        """
+        The homeowner takes over a fresh box from the shared Orchestra-Agent account.
+
+        Creates their admin login and person, then retires the image's agent password and
+        token, and signs the agent's browser sessions out, so the next login is theirs.
+        The password goes straight to Home Assistant's login store and nowhere else.
+        """
+        name, username = name.strip(), username.strip().lower()
+        if not name:
+            raise ClaimError("Enter your name.")
+        if not USERNAME_RE.match(username):
+            raise ClaimError("Usernames are 3 to 32 lowercase letters, numbers, dots, dashes or underscores.")
+        if username == AGENT_USERNAME:
+            raise ClaimError("Choose a username of your own.")
+        if len(password) < MIN_PASSWORD_LENGTH:
+            raise ClaimError(f"Use a password of at least {MIN_PASSWORD_LENGTH} characters.")
+        async with self._claim_lock:
+            if not self.claim_needed:
+                raise ClaimError("This home already has an owner. Sign in with that login instead.")
+            provider = await self._async_login_provider()
+            if provider is None:
+                raise ClaimError("Home Assistant's login service isn't ready yet. Try again in a minute.")
+            try:
+                await self._async_add_login(provider, name, username, password, admin=True)
+            except Exception as err:
+                _LOGGER.info("Orchestra could not add login %s: %s", username, err)
+                raise ClaimError("That username is taken. Choose another one.") from err
+            self.state["logins_created"] = [username]
+            self.state["claimed_at"] = time.time()
+            await self.async_retire_agent_credentials()
+            await self.async_set_item_done(PUNCH_NO_USERS, True)
+            await self._async_save_state()
+            self._async_update_listeners()
+        async_call_later(self.hass, AGENT_SIGN_OUT_SECONDS, self._async_sign_out_agent)
+        return username
+
+    async def _async_sign_out_agent(self, _now: Any = None) -> None:
+        """End the agent's browser and app sessions; its long-lived token stays."""
+        from homeassistant.auth.models import TOKEN_TYPE_NORMAL
+
+        agent = await self._async_agent_user()
+        if agent is None:
+            return
+        for token in list(agent.refresh_tokens.values()):
+            if token.token_type == TOKEN_TYPE_NORMAL:
+                self.hass.auth.async_remove_refresh_token(token)
+
+    async def _async_agent_user(self) -> Any:
+        for user in await self.hass.auth.async_get_users():
+            if any(c.data.get("username") == AGENT_USERNAME for c in user.credentials):
+                return user
+        return None
 
     async def async_retire_agent_credentials(self) -> None:
         """
@@ -375,8 +446,8 @@ class OrchestraSetupAgent:
                 PunchItem(
                     PUNCH_NO_USERS,
                     "Create your own login",
-                    "No logins were set when this image was built, so the Orchestra-Agent "
-                    "password has not been changed. Add a person under Settings → People.",
+                    "Open the Setup tab and choose 'Make this home yours' to create your own "
+                    "login. Until then this box still uses the shared Orchestra-Agent sign-in.",
                 ),
             )
             return
@@ -398,11 +469,7 @@ class OrchestraSetupAgent:
         """Give the agent a new long-lived token and revoke the one every image shares."""
         from homeassistant.auth.models import TOKEN_TYPE_LONG_LIVED_ACCESS_TOKEN
 
-        agent = None
-        for user in await self.hass.auth.async_get_users():
-            if any(c.data.get("username") == AGENT_USERNAME for c in user.credentials):
-                agent = user
-                break
+        agent = await self._async_agent_user()
         if agent is None:
             _LOGGER.warning("Orchestra could not find the agent account to re-issue its token")
             return
@@ -602,3 +669,7 @@ def _remove_file(path: Path) -> None:
 def _write_private_file(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
     path.chmod(0o600)
+
+
+class ClaimError(Exception):
+    """Why the box could not be claimed, in words for the homeowner."""

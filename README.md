@@ -225,25 +225,21 @@ The pre-built Home Assistant OS 15.2 (`rpi5-64`) image with all Orchestra modifi
    `dist/haos_rpi5-64_orchestra_preloaded.img.xz`
 3. Select your MicroSD card or NVMe SSD (16 GB+ recommended) and click **Write**. (Do **not** apply Raspberry Pi Imager OS customisation settings when prompted—Orchestra's `CONFIG` and `.storage` payload are already embedded.)
 
-### Option B: Rebuild with Logins and Wi-Fi Pre-Configured
-Name the homeowner logins the setup agent should create, and bake in Wi-Fi if the Pi won't use
-Ethernet:
+### Option B: Rebuild the Image
+Every image is a generic product build: the same image goes to every customer, so never bake a
+person's login or Wi-Fi into it.
 
 ```bash
-/opt/homebrew/bin/python3 haos_image/build_rpi_image.py \
-  --board rpi5-64 \
-  --download-official \
-  --user "Dee Ben:dee" \
-  --user "Sam Ben:sam:ChosenPassword" \
-  --wifi-ssid "YourHomeWiFi" \
-  --wifi-psk "YourWiFiPassword"
+/opt/homebrew/bin/python3 haos_image/build_rpi_image.py --board rpi5-64 --download-official
 ```
 
-- `--user "Full Name:username[:password]"` can be repeated. Missing passwords are generated. All
-  logins are written to `dist/orchestra_handover.txt` for the installer to hand over. Without any
-  `--user`, the agent password is left unchanged and the punch list asks for a login instead.
+- On first boot the box runs as the shared Orchestra-Agent account. The first time someone opens
+  Home Assistant, the Setup drawer asks them to **Make this home yours**: they create their own
+  admin login there (handled by Home Assistant, never by the assistant), the Orchestra-Agent
+  password is replaced with a random one, its image token is revoked, and they sign in as themselves.
 - HACS is downloaded from its latest GitHub release. Use `--hacs-version 2.0.5` to pin one,
   `--hacs-zip path/to/hacs.zip` to build offline, or `--no-hacs` to leave it out.
-- The agent's long-lived token is written to `dist/orchestra_agent_token.txt`.
+- The image's agent token is written to `dist/orchestra_agent_token.txt`; the box replaces it once claimed.
+- `--user` and `--wifi-ssid` still exist for one-off lab builds, but don't use them for images that ship.
 
 *(also supports `--board rpi3-64` and `--board rpi4-64`)*

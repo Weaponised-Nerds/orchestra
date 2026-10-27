@@ -31,6 +31,14 @@ const STYLE = `
   .thumbs { display: flex; gap: 6px; padding: 0 12px; }
   .thumbs img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; }
   input[type=file] { display: none; }
+  form[hidden], .error[hidden] { display: none; }
+  .claim { flex-direction: column; align-items: stretch; gap: 10px; padding: 4px 2px; border-top: 0; }
+  .claim h3 { margin: 0; font-size: 17px; font-weight: 500; }
+  .claim p { margin: 0; font-size: 14px; line-height: 1.45; color: var(--secondary-text-color, #727272); }
+  .claim label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+  .claim input { height: 40px; padding: 0 10px; border-radius: 8px; font: inherit; font-size: 15px; box-sizing: border-box;
+    border: 1px solid var(--divider-color, #ccc); background: var(--card-background-color, #fff); color: inherit; }
+  .claim .error { text-align: left; }
 `;
 
 function escapeHtml(text) {
@@ -94,6 +102,7 @@ class OrchestraAgentChat extends HTMLElement {
         </form>
       </div>`;
     const root = this.shadowRoot;
+    root.querySelector("form").classList.add("ask");
     this._log = root.querySelector(".log");
     this._thumbs = root.querySelector(".thumbs");
     this._input = root.querySelector("textarea");
@@ -128,6 +137,10 @@ class OrchestraAgentChat extends HTMLElement {
       this._add("error", "The setup assistant isn't available. Restart Home Assistant after updating Orchestra.");
       return;
     }
+    if (status.claim_needed) {
+      this._showClaim();
+      return;
+    }
     if (history.length) {
       for (const m of history) {
         this._add(m.role, m.text + (m.photos ? `  [${m.photos} photo${m.photos > 1 ? "s" : ""}]` : ""));
@@ -150,6 +163,60 @@ class OrchestraAgentChat extends HTMLElement {
       this._send(waiting ? "Let's start. What needs me?" : "Can you check whether anything is waiting to be set up?");
     });
     this._log.appendChild(start);
+  }
+
+  // "Make this home yours": the homeowner's own login replaces the shared Orchestra-Agent one.
+  // This form goes straight to Home Assistant's login store, never to the assistant.
+  _showClaim() {
+    const chatForm = this.shadowRoot.querySelector("form.ask");
+    chatForm.hidden = true;
+    const box = document.createElement("form");
+    box.className = "claim";
+    box.innerHTML = `
+      <h3>Make this home yours</h3>
+      <p>This box is still signed in with the shared Orchestra setup account. Create your own login now.
+        After that, the shared account is locked and you'll sign in as yourself. Your password stays in
+        Home Assistant: the assistant never sees it.</p>
+      <label>Your name<input name="name" autocomplete="name" required></label>
+      <label>Username<input name="username" autocomplete="username" autocapitalize="none" required></label>
+      <label>Password (at least 8 characters)<input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label>Password again<input name="confirm" type="password" autocomplete="new-password" required></label>
+      <div class="error" hidden></div>
+      <button type="submit" class="btn">Create my login</button>`;
+    const error = box.querySelector(".error");
+    const fail = (text) => {
+      error.textContent = text;
+      error.hidden = false;
+    };
+    box.querySelector("[name=name]").addEventListener("input", (ev) => {
+      const user = box.querySelector("[name=username]");
+      if (!user.dataset.touched) user.value = ev.target.value.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9._-]/g, "");
+    });
+    box.querySelector("[name=username]").addEventListener("input", (ev) => (ev.target.dataset.touched = "1"));
+    box.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const data = Object.fromEntries(new FormData(box));
+      if (data.password !== data.confirm) return fail("The two passwords don't match.");
+      const button = box.querySelector("button");
+      button.disabled = true;
+      error.hidden = true;
+      try {
+        const { username } = await this._hass.callWS({
+          type: "orchestra/agent/claim",
+          name: data.name,
+          username: data.username,
+          password: data.password,
+        });
+        box.innerHTML = `<h3>Welcome home</h3><p>Your login <b>${escapeHtml(username)}</b> is ready and the shared
+          setup account is locked. Signing you out now: sign back in as <b>${escapeHtml(username)}</b>
+          and I'll help with the rest of the setup.</p>`;
+        setTimeout(() => location.reload(), 5000);
+      } catch (err) {
+        button.disabled = false;
+        fail(err?.message || "That didn't work. Try again.");
+      }
+    });
+    this._log.appendChild(box);
   }
 
   _add(role, text) {
@@ -295,18 +362,24 @@ customElements.get("orchestra-agent-panel") || customElements.define("orchestra-
     tab.addEventListener("click", open);
     chat.addEventListener("close", close);
 
+    let claimShown = false;
     const refresh = async () => {
       tab.hidden = onPanel() || drawer.classList.contains("open");
       try {
         const status = await getHass().callWS({ type: "orchestra/agent/status" });
         const waiting = status.open_items + status.waiting_devices;
-        badge.hidden = !waiting;
-        badge.textContent = waiting;
+        badge.hidden = !waiting && !status.claim_needed;
+        badge.textContent = status.claim_needed ? "!" : waiting;
         // Open once by itself on a fresh Orchestra box, so nobody has to find the tab
         let greeted = false;
         try { greeted = localStorage.getItem("orchestra-agent-greeted") === "1"; } catch (err) {}
-        if (status.open_items && !greeted && !onPanel()) {
-          try { localStorage.setItem("orchestra-agent-greeted", "1"); } catch (err) {}
+        // and once per page load until someone has made the home theirs
+        const claimDue = status.claim_needed && !claimShown;
+        if ((claimDue || (status.open_items && !greeted)) && !onPanel() && !drawer.classList.contains("open")) {
+          claimShown = claimShown || status.claim_needed;
+          if (!status.claim_needed) {
+            try { localStorage.setItem("orchestra-agent-greeted", "1"); } catch (err) {}
+          }
           open();
         }
       } catch (err) {

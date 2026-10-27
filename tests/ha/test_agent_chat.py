@@ -133,7 +133,31 @@ async def test_status_counts_what_is_waiting(hass: HomeAssistant, chat, hass_ws_
     await hass.config_entries.flow.async_init("tvdev", context={"source": "zeroconf"}, data={})
     client = await hass_ws_client(hass)
     await client.send_json({"id": 1, "type": "orchestra/agent/status"})
-    assert (await client.receive_json())["result"] == {"available": True, "open_items": 0, "waiting_devices": 1}
+    assert (await client.receive_json())["result"] == {
+        "available": True, "open_items": 0, "waiting_devices": 1, "claim_needed": True
+    }
+
+
+async def test_claim_over_websocket(hass: HomeAssistant, chat, hass_ws_client, local_auth) -> None:
+    client = await hass_ws_client(hass)
+    await client.send_json({"id": 1, "type": "orchestra/agent/claim", "name": "Sam", "username": "sam", "password": "short"})
+    reply = await client.receive_json()
+    assert not reply["success"] and "8 characters" in reply["error"]["message"]
+
+    await client.send_json(
+        {"id": 2, "type": "orchestra/agent/claim", "name": "Sam", "username": "sam", "password": "correct-horse"}
+    )
+    assert (await client.receive_json())["result"] == {"username": "sam"}
+    await client.send_json({"id": 3, "type": "orchestra/agent/status"})
+    assert (await client.receive_json())["result"]["claim_needed"] is False
+    # Let the agent's sign-out run, so no timer outlives the test
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=5))
+    await hass.async_block_till_done()
 
 
 async def test_box_id_is_kept(hass: HomeAssistant, chat) -> None:

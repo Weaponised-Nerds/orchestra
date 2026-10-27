@@ -201,6 +201,56 @@ async def test_no_logins_keeps_agent_password(hass: HomeAssistant, tmp_path, loc
     assert [i["key"] for i in agent.open_items] == ["users"]
 
 
+async def test_homeowner_claims_a_generic_box(hass: HomeAssistant, tmp_path, local_auth) -> None:
+    """No logins in the image: the homeowner makes the box theirs and the shared sign-in stops working."""
+    from datetime import timedelta
+
+    from homeassistant.auth.models import TOKEN_TYPE_NORMAL
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.orchestra.setup_agent import ClaimError
+
+    hass.config.config_dir = str(tmp_path)
+    image_token = await _agent_account(hass, local_auth)
+    agent_user = next(u for u in await hass.auth.async_get_users() if u.name == "Orchestra-Agent")
+    browser = await hass.auth.async_create_refresh_token(agent_user, client_id="http://localhost/")
+    assert browser.token_type == TOKEN_TYPE_NORMAL
+    agent = OrchestraSetupAgent(hass, {"users": []}, {})
+    await agent.async_setup_users()
+    assert agent.claim_needed and [i["key"] for i in agent.open_items] == ["users"]
+
+    for name, username, password in [
+        ("", "sam", "longenough"),
+        ("Sam", "S", "longenough"),
+        ("Sam", AGENT_USERNAME, "longenough"),
+        ("Sam", "sam", "short"),
+    ]:
+        with pytest.raises(ClaimError):
+            await agent.async_claim(name, username, password)
+    assert agent.claim_needed
+
+    assert await agent.async_claim("Sam Smith", " Sam ", "correct-horse") == "sam"
+    await local_auth.async_validate_login("sam", "correct-horse")
+    users = {u.name: u for u in await hass.auth.async_get_users()}
+    assert any(g.id == "system-admin" for g in users["Sam Smith"].groups)
+    with pytest.raises(Exception):
+        await local_auth.async_validate_login(AGENT_USERNAME, "OrchestraAgent2026!")
+    assert hass.auth.async_validate_access_token(image_token) is None
+    assert not agent.claim_needed and agent.open_items == []
+
+    # The agent's browser session ends a moment later, so the next sign-in is the homeowner's
+    assert hass.auth.async_get_refresh_token(browser.id) is not None
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=5))
+    await hass.async_block_till_done()
+    assert hass.auth.async_get_refresh_token(browser.id) is None
+    new_token = Path(hass.config.path("orchestra_agent_token.txt")).read_text().strip()
+    assert hass.auth.async_validate_access_token(new_token) is not None
+
+    with pytest.raises(ClaimError):
+        await agent.async_claim("Eve", "eve", "another-password")
+
+
 async def test_image_first_boot_end_to_end(
     hass: HomeAssistant, tmp_path, hass_storage, local_auth, enable_custom_integrations
 ) -> None:
