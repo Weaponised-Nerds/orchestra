@@ -198,6 +198,7 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_history)
     websocket_api.async_register_command(hass, ws_reset)
     websocket_api.async_register_command(hass, ws_send)
+    websocket_api.async_register_command(hass, ws_claim)
 
 
 def _agent(hass: HomeAssistant) -> OrchestraChatAgent | None:
@@ -213,7 +214,12 @@ def ws_status(hass: HomeAssistant, connection: websocket_api.ActiveConnection, m
     waiting = len(hass.config_entries.flow.async_progress())
     connection.send_result(
         msg["id"],
-        {"available": _agent(hass) is not None, "open_items": open_items, "waiting_devices": waiting},
+        {
+            "available": _agent(hass) is not None,
+            "open_items": open_items,
+            "waiting_devices": waiting,
+            "claim_needed": bool(setup_agent and setup_agent.claim_needed),
+        },
     )
 
 
@@ -272,3 +278,29 @@ def ws_send(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg
     connection.subscriptions[msg_id] = lambda: None
     connection.send_result(msg_id)
     hass.async_create_background_task(_run(), "orchestra_agent_chat")
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "orchestra/agent/claim",
+        vol.Required("name"): str,
+        vol.Required("username"): str,
+        vol.Required("password"): str,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_claim(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    """'Make this home yours': handled here, never by the assistant, so the password stays out of the chat."""
+    from .setup_agent import ClaimError
+
+    setup_agent = hass.data.get(DOMAIN, {}).get("setup_agent")
+    if setup_agent is None:
+        connection.send_error(msg["id"], "not_ready", "This box has no Orchestra setup to finish.")
+        return
+    try:
+        username = await setup_agent.async_claim(msg["name"], msg["username"], msg["password"])
+    except ClaimError as err:
+        connection.send_error(msg["id"], "invalid", str(err))
+        return
+    connection.send_result(msg["id"], {"username": username})

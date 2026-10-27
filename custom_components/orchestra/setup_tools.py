@@ -34,7 +34,9 @@ SETUP_PROMPT = (
     "When the person sends a photo of a label, read the value, repeat it back and wait for "
     "a yes before you submit it. Use orchestra_get_setup_form before submitting so you know "
     "the exact field names. Steps that need a sign-in on a vendor's website are parked for "
-    "now: tell the person it uses the maker's cloud and leave it on the list."
+    "now: tell the person it uses the maker's cloud and leave it on the list. Never ask for, "
+    "repeat or submit the person's own Home Assistant password: if the list says the home "
+    "has no owner login yet, point them to the 'Make this home yours' form in the Setup drawer."
 )
 
 
