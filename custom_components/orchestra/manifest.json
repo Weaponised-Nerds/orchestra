@@ -1,7 +1,7 @@
 {
   "domain": "orchestra",
   "name": "Orchestra",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "documentation": "https://github.com/Weaponised-Nerds/orchestra",
   "issue_tracker": "https://github.com/Weaponised-Nerds/orchestra/issues",
   "dependencies": ["http", "webhook", "frontend", "panel_custom", "websocket_api"],

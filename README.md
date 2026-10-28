@@ -47,8 +47,11 @@ rest into a short punch list.
    admins only, and on a fresh box the drawer opens by itself. The assistant is a Claude agent
    whose loop runs inside Home Assistant: it reads the punch list and the discovered devices,
    asks for a pairing code or a photo of a label, and submits it through the **Orchestra Setup**
-   tools ([`setup_tools.py`](custom_components/orchestra/setup_tools.py)), which can't delete
-   anything. Nothing else needs installing. Model calls go through Conductor's relay
+   tools ([`setup_tools.py`](custom_components/orchestra/setup_tools.py)). Once devices are set
+   up it also tidies the home: it proposes clear names, rooms and labels for the key energy
+   equipment and applies them after a yes, then assigns each A/C, heat pump, EV charger and home
+   battery to its Conductor blueprint ([`asset_assignments.py`](custom_components/orchestra/asset_assignments.py)).
+   The tools can't delete devices, integrations or entities. Nothing else needs installing. Model calls go through Conductor's relay
    (`/api/orchestra/agent/messages`), which holds the API key and limits each box per day;
    conversations stay in Home Assistant's memory and are not stored anywhere. The same tools are
    also offered to Home Assistant's MCP Server, for anyone who prefers their own Claude app.
