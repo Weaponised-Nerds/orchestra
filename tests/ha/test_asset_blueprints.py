@@ -8,6 +8,8 @@ Needs `pytest-homeassistant-custom-component`, so it is skipped in the plain tes
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
 pytest.importorskip("pytest_homeassistant_custom_component")
@@ -17,6 +19,8 @@ pytestmark = pytest.mark.parametrize("expected_lingering_timers", [True])
 
 from homeassistant.core import HomeAssistant, ServiceCall  # noqa: E402
 from homeassistant.setup import async_setup_component  # noqa: E402
+from homeassistant.util import dt as dt_util  # noqa: E402
+from pytest_homeassistant_custom_component.common import async_fire_time_changed  # noqa: E402
 
 from custom_components.orchestra.heat_pump_control import async_setup_heat_pump_control  # noqa: E402
 from custom_components.orchestra.hvac_drift import async_setup_hvac_drift  # noqa: E402
@@ -393,6 +397,49 @@ async def test_preheat_switches_an_off_unit_on_and_back(hass, tmp_path) -> None:
     await _offset(hass, 0.0)
     assert hass.states.get(CLIMATE).state == "off"
     assert _setpoint(hass) == 21.0
+
+
+async def test_precool_on_a_slow_unit_still_switches_it_back_off(hass, tmp_path) -> None:
+    """A cloud unit (AirTouch) keeps reporting off for a while after being switched on."""
+    hass.config.config_dir = str(tmp_path)
+    await hass.async_add_executor_job(install_blueprints, tmp_path)
+    await async_setup_hvac_drift(hass)
+    asked: list[str] = []
+
+    async def set_temperature(call: ServiceCall) -> None:
+        state = hass.states.get(CLIMATE)
+        hass.states.async_set(CLIMATE, state.state, {**state.attributes, "temperature": call.data["temperature"]})
+
+    async def set_hvac_mode(call: ServiceCall) -> None:
+        asked.append(call.data["hvac_mode"])  # taken, but not reported yet
+
+    hass.services.async_register("climate", "set_temperature", set_temperature)
+    hass.services.async_register("climate", "set_hvac_mode", set_hvac_mode)
+    hass.states.async_set(
+        CLIMATE, "off",
+        {"temperature": 24.0, "min_temp": 16, "max_temp": 30, "target_temp_step": 1,
+         "hvac_modes": ["off", "heat", "cool", "heat_cool"]},
+    )
+    _set_offset(hass, 0.0, "idle")
+    assert await async_setup_component(
+        hass,
+        "automation",
+        {"automation": [{"id": "gf", "use_blueprint": {
+            "path": blueprint_path(BLUEPRINT_HVAC_SETPOINT_OFFSET), "input": {"climate_entity": CLIMATE}}}]},
+    )
+    await hass.async_block_till_done()
+    await _offset(hass, -2.0, "precool")
+    for minutes in (5, 10, 15):  # the 5-minute checks while it still reports off
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=minutes))
+        await hass.async_block_till_done()
+    assert asked == ["cool", "cool"]
+
+    # It comes on at last, reporting its own mode
+    hass.states.async_set(CLIMATE, "heat_cool", hass.states.get(CLIMATE).attributes)
+    await hass.async_block_till_done()
+    await _offset(hass, 0.0)
+    assert asked[-1] == "off"
+    assert _setpoint(hass) == 24.0
 
 
 HP_POWER = "switch.heat_pump_power"

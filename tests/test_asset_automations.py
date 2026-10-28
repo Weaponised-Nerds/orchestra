@@ -323,6 +323,8 @@ class TestHvacModePlan(unittest.TestCase):
     def test_preheat_switches_on_and_back_off(self) -> None:
         set_mode, held = self._plan(None, "off", 1.5, "preheat")
         self.assertEqual(set_mode, "heat")
+        set_mode, held = self._plan(held, "heat", 1.5, "preheat")
+        self.assertIsNone(set_mode)
         self.assertEqual(self._plan(held, "heat", 1.5, "preheat"), (None, held))
         self.assertEqual(self._plan(held, "heat", 0.0, "idle"), ("off", None))
 
@@ -338,14 +340,33 @@ class TestHvacModePlan(unittest.TestCase):
 
     def test_switched_off_by_hand_stays_off(self) -> None:
         _, held = self._plan(None, "off", 1.5, "preheat")
-        set_mode, held = self._plan(held, "off", 1.5, "preheat")  # slow to take it: once more
-        self.assertEqual(set_mode, "heat")
-        set_mode, held = self._plan(held, "off", 1.5, "preheat")
-        self.assertIsNone(set_mode)
-        self.assertEqual(self._plan(held, "off", 0.0, "idle"), (None, None))
+        _, held = self._plan(held, "heat", 1.5, "preheat")
+        self.assertEqual(self._plan(held, "off", 1.5, "preheat"), (None, {"off_by_hand": True}))
+        self.assertEqual(self._plan({"off_by_hand": True}, "off", 0.0, "idle"), (None, None))
+
+    def test_slow_unit_still_goes_back_off(self) -> None:
+        # Cloud units (AirTouch) can report off for a while after being switched on
+        _, held = self._plan(None, "off", -1.5, "precool")
+        set_mode, held = self._plan(held, "off", -1.5, "precool")
+        self.assertEqual(set_mode, "cool")
+        for _ in range(3):
+            set_mode, held = self._plan(held, "off", -1.5, "precool")
+            self.assertIsNone(set_mode)
+        _, held = self._plan(held, "cool", -1.5, "precool")
+        self.assertEqual(self._plan(held, "cool", 0.0, "idle"), ("off", None))
+
+    def test_unit_reporting_its_own_mode_still_goes_back_off(self) -> None:
+        _, held = self._plan(None, "off", -1.5, "precool")
+        _, held = self._plan(held, "heat_cool", -1.5, "precool")
+        self.assertEqual(self._plan(held, "heat_cool", 0.0, "idle"), ("off", None))
+        # Ended before the next check saw it on
+        _, held = self._plan(None, "off", -1.5, "precool")
+        self.assertEqual(self._plan(held, "fan_only", 0.0, "idle"), ("off", None))
 
     def test_mode_changed_by_hand_is_not_undone(self) -> None:
         _, held = self._plan(None, "off", 1.5, "preheat")
+        _, held = self._plan(held, "heat", 1.5, "preheat")
+        _, held = self._plan(held, "cool", 1.5, "preheat")
         self.assertEqual(self._plan(held, "cool", 0.0, "idle"), (None, None))
 
     def test_disabled(self) -> None:

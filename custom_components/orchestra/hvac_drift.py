@@ -8,7 +8,8 @@ offset, never compounding, and restores the starting setpoint when the offset is
 A setpoint changed by hand mid-drift becomes the new starting point.
 
 Pre-heat and pre-cool also switch on a unit that is off, and switch it back off once
-the pre-conditioning ends. A unit switched off by hand mid-event is left off.
+the pre-conditioning ends, however slowly the unit reports being on and whatever mode it
+reports. A unit switched off, or to another mode, by hand mid-event is left as it is.
 """
 
 from __future__ import annotations
@@ -153,15 +154,28 @@ def plan_mode(
             if mode is None:
                 return None, None, None
             return mode, {"restore": "off", "set": mode}, f"switching on in {mode} for {dispatch_mode}"
-        if "set" in held and hvac_mode == "off":
-            # Still off once could be a unit slow to take the command; twice is by hand
-            if held.get("resends", 0) < 1:
-                resent = {**held, "resends": held.get("resends", 0) + 1}
-                return held["set"], resent, f"still off, switching on in {held['set']} again"
+        if "set" not in held:
+            return None, held, None
+        if hvac_mode != "off":
+            # Remember the mode the unit reports once on: it may not be the one we sent
+            # (zone controllers report their own), and a later change from it is by hand
+            seen = held.get("seen")
+            if seen is None:
+                return None, {**held, "seen": hvac_mode}, None
+            if hvac_mode != seen:
+                return None, {"changed_by_hand": True}, None
+            return None, held, None
+        if "seen" in held:
+            # It was on and is off again: switched off by hand
             return None, {"off_by_hand": True}, None
+        # Never seen on: slow to take the command (cloud units can take minutes), so send
+        # it once more and keep holding, so it still goes back off if it comes on late
+        if held.get("resends", 0) < 1:
+            resent = {**held, "resends": held.get("resends", 0) + 1}
+            return held["set"], resent, f"still off, switching on in {held['set']} again"
         return None, held, None
 
-    if held and "set" in held and hvac_mode == held["set"]:
+    if held and "set" in held and hvac_mode != "off" and hvac_mode == held.get("seen", hvac_mode):
         return held["restore"], None, f"{held['restore']} again now {dispatch_mode or 'idle'}"
     return None, None, None
 
