@@ -181,16 +181,23 @@ def stage_orchestra_supervisor_payload(
             "",
             "These work about a minute after Home Assistant's first start (the first boot downloads",
             "Home Assistant itself, which can take 10-20 minutes before the login page appears).",
+            "",
+            "Orchestra-Agent: username orchestra-agent, password OrchestraAgent2026!",
+            "This login and orchestra_agent_token.txt work until the setup agent finishes (up to 15 minutes",
+            "after Home Assistant starts). It then sets a random password and writes a new token to",
+            "/config/orchestra_agent_token.txt on the Pi; the token from this build stops working.",
         ]
     else:
-        lines.append("No logins were set (--user). The agent password stays unchanged until one is added.")
-    lines += [
-        "",
-        "Orchestra-Agent: username orchestra-agent, password OrchestraAgent2026!",
-        "This login and orchestra_agent_token.txt work until the setup agent finishes (up to 15 minutes",
-        "after Home Assistant starts). It then sets a random password and writes a new token to",
-        "/config/orchestra_agent_token.txt on the Pi; the token from this build stops working.",
-    ]
+        lines += [
+            "Generic image: no homeowner logins are baked in.",
+            "",
+            "Sign in with username orchestra-agent, password OrchestraAgent2026! (the first boot",
+            "downloads Home Assistant, which can take 10-20 minutes before the login page appears).",
+            "The Setup drawer then asks the homeowner to 'Make this home yours': they create their",
+            "own login, and only then does the agent get a random password and a new token",
+            "(/config/orchestra_agent_token.txt on the Pi). Until the box is claimed, this shared",
+            "login and orchestra_agent_token.txt keep working, so claim it straight away.",
+        ]
     handover.write_text("\n".join(lines) + "\n", encoding="utf-8")
     handover.chmod(0o600)
 
