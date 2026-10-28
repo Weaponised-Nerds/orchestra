@@ -51,7 +51,12 @@ rest into a short punch list.
    up it also tidies the home: it proposes clear names, rooms and labels for the key energy
    equipment and applies them after a yes, then assigns each A/C, heat pump, EV charger and home
    battery to its Conductor blueprint ([`asset_assignments.py`](custom_components/orchestra/asset_assignments.py)).
-   The tools can't delete devices, integrations or entities. Nothing else needs installing. Model calls go through Conductor's relay
+   The tools can't delete devices, integrations or entities. Nothing else needs installing.
+   Orchestra also keeps HACS current by itself until someone signs HACS in to GitHub, can update
+   HACS and Orchestra from their GitHub releases on request (restarting only after a yes), and
+   gives Home Assistant the **Conductor** theme in light and dark
+   ([`component_updates.py`](custom_components/orchestra/component_updates.py),
+   [`theme_installer.py`](custom_components/orchestra/theme_installer.py)). Model calls go through Conductor's relay
    (`/api/orchestra/agent/messages`), which holds the API key and limits each box per day;
    conversations stay in Home Assistant's memory and are not stored anywhere. The same tools are
    also offered to Home Assistant's MCP Server, for anyone who prefers their own Claude app.
