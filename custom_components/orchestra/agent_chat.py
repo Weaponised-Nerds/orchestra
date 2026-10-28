@@ -33,7 +33,7 @@ _LOGGER = logging.getLogger(__name__)
 
 RELAY_URL = "https://conductor.deezlepower.com/api/orchestra/agent/messages"
 BOX_STORE_KEY = f"{DOMAIN}.agent"
-MAX_TOOL_ROUNDS = 15
+MAX_TOOL_ROUNDS = 30
 MAX_IMAGES = 4
 RELAY_TIMEOUT = aiohttp.ClientTimeout(total=300)
 

@@ -142,6 +142,7 @@ async def test_lists_devices_with_serials_and_rooms(hass: HomeAssistant, tools, 
         suggested_area="Garage",
     )
     result = await _call(hass, hass_admin_user.id, "orchestra_list_devices", area="garage")
+    assert result["devices"][0].pop("device_id")
     assert result["devices"] == [
         {
             "name": "Gateway",
@@ -149,6 +150,82 @@ async def test_lists_devices_with_serials_and_rooms(hass: HomeAssistant, tools, 
             "model": "Backup Gateway 2",
             "serial_number": "1118431-00-L--TG123456",
             "area": "Garage",
+            "labels": [],
             "integrations": ["tvdev"],
         }
     ]
+
+
+async def test_organises_equipment_and_assigns_blueprints(hass: HomeAssistant, tools, hass_admin_user) -> None:
+    import yaml
+
+    from homeassistant.helpers import entity_registry as er
+
+    uid = hass_admin_user.id
+    entry = MockConfigEntry(domain="tvdev", title="Wallbox")
+    entry.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={("tvdev", "ev1")}, name="WB-123", manufacturer="Wallbox"
+    )
+    ent_reg = er.async_get(hass)
+    current = ent_reg.async_get_or_create(
+        "number", "tvdev", "ev1-current", device_id=device.id, original_name="Max current", config_entry=entry
+    )
+    switch = ent_reg.async_get_or_create(
+        "switch", "tvdev", "ev1-switch", device_id=device.id, original_name="Charging", config_entry=entry
+    )
+    hass.states.async_set(current.entity_id, "16", {"unit_of_measurement": "A"})
+    hass.states.async_set(switch.entity_id, "off")
+    hass.states.async_set("climate.lounge", "cool")
+    hass.states.async_set("climate.bed", "cool")
+
+    connected = await _call(hass, uid, "orchestra_list_integrations")
+    assert {"integration": "tvdev", "title": "Wallbox", "state": "not_loaded"} in connected["integrations"]
+
+    listed = await _call(hass, uid, "orchestra_list_entities", device_id=device.id)
+    assert {e["entity_id"] for e in listed["entities"]} == {current.entity_id, switch.entity_id}
+    assert (await _call(hass, uid, "orchestra_list_entities", search="max curr"))["total"] == 1
+
+    moved = await _call(
+        hass, uid, "orchestra_update_device", device_id=device.id, name="Garage EV charger", area="Garage",
+        labels=["EV charging"],
+    )
+    assert moved == {"device_id": device.id, "name": "Garage EV charger", "area": "Garage", "labels": ["EV charging"]}
+    renamed = await _call(hass, uid, "orchestra_update_entity", entity_id=current.entity_id, name="Charging current")
+    assert renamed["name"] == "Charging current" and renamed["entity_id"] == current.entity_id
+    assert "error" in await _call(hass, uid, "orchestra_update_device", device_id="nope", name="x")
+
+    # Wrong kinds of entity are refused with a reason
+    bad = await _call(hass, uid, "orchestra_assign_equipment", kind="ev_charger", entities=[switch.entity_id])
+    assert "needs a number" in bad["error"]
+    bad = await _call(hass, uid, "orchestra_assign_equipment", kind="ev_charger", entities=["number.nope"])
+    assert "no entity" in bad["error"]
+    bad = await _call(hass, uid, "orchestra_assign_equipment", kind="solar", entities=["climate.lounge"])
+    assert "Unknown kind" in bad["error"]
+
+    ev = await _call(
+        hass, uid, "orchestra_assign_equipment", kind="ev_charger", entities=[current.entity_id],
+        settings={"charger_switch": switch.entity_id},
+    )
+    assert ev["inputs"] == {"charger_switch": switch.entity_id, "charger_current": current.entity_id}
+    ac = await _call(hass, uid, "orchestra_assign_equipment", kind="air_conditioning", entities=["climate.lounge"])
+    assert ac["automation_id"] == "orchestra_hvac_offset" and not ac["updated"]
+    # Assigning again updates the same automation rather than adding a second
+    ac = await _call(
+        hass, uid, "orchestra_assign_equipment", kind="air_conditioning", entities=["climate.lounge", "climate.bed"]
+    )
+    assert ac["updated"] and ac["inputs"]["climate_entity"] == ["climate.bed", "climate.lounge"]
+
+    assigned = await _call(hass, uid, "orchestra_get_equipment_assignments")
+    assert sorted(a["kind"] for a in assigned["assigned"]) == ["air_conditioning", "ev_charger"]
+    assert set(assigned["kinds"]) == {"air_conditioning", "heat_pump", "ev_charger", "home_battery"}
+    saved = yaml.safe_load(Path(hass.config.path("automations.yaml")).read_text())
+    assert [a["use_blueprint"]["path"] for a in saved] == [
+        "orchestra/orchestra_ev_charge_rate.yaml",
+        "orchestra/orchestra_hvac_setpoint_offset.yaml",
+    ]
+
+    removed = await _call(hass, uid, "orchestra_remove_equipment_assignment", automation_id=ev["automation_id"])
+    assert removed == {"removed": ev["automation_id"]}
+    assert "error" in await _call(hass, uid, "orchestra_remove_equipment_assignment", automation_id="nope")
+    assert len(yaml.safe_load(Path(hass.config.path("automations.yaml")).read_text())) == 1

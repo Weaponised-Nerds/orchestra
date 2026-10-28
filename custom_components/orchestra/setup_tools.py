@@ -6,9 +6,10 @@ it (pick it next to Assist when adding the MCP Server integration), so an agent 
 Claude can read the setup punch list, see what each discovered device is waiting for,
 and submit the pairing code, serial number or choice the person gives it.
 
-The tools only read setup state and drive config flows, the same steps a person takes in
-Settings → Devices & services. They cannot delete anything, and every tool needs an admin
-user, because adding integrations does.
+The tools drive config flows, name devices and entities, put them in rooms, and assign
+equipment to the Orchestra blueprints: the same steps a person takes in Settings. They
+cannot delete devices, integrations or entities, never see logins, and every tool needs an
+admin user, because those settings pages do.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import area_registry as ar, device_registry as dr, llm
+from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er, llm
 
 from .const import DOMAIN
 from .schema import to_field_list, vol
@@ -24,6 +25,7 @@ from .schema import to_field_list, vol
 SETUP_API_ID = "orchestra_setup"
 SETUP_API_NAME = "Orchestra Setup"
 MAX_DEVICES = 200
+MAX_ENTITIES = 150
 
 SETUP_PROMPT = (
     "You are helping a homeowner finish setting up their Orchestra home energy system in "
@@ -36,7 +38,18 @@ SETUP_PROMPT = (
     "the exact field names. Steps that need a sign-in on a vendor's website are parked for "
     "now: tell the person it uses the maker's cloud and leave it on the list. Never ask for, "
     "repeat or submit the person's own Home Assistant password: if the list says the home "
-    "has no owner login yet, point them to the 'Make this home yours' form in the Setup drawer."
+    "has no owner login yet, point them to the 'Make this home yours' form in the Setup drawer. "
+    "Before saying an integration isn't connected, check orchestra_list_integrations. "
+    "Once devices are set up, organise the home: for the key energy equipment (solar, home "
+    "batteries, EV chargers, air conditioning, heat pumps and hot water) and anything the person "
+    "asks about, look at the devices and entities, give them short clear names a homeowner "
+    "would use (room plus what it is, such as 'Garage EV charger'), put each device in its "
+    "room and label it. Propose the changes in a short list and make them after the person "
+    "says yes. Then assign each air conditioner (or its zones), heat pump or hot water "
+    "system, EV charger and home battery to its Orchestra blueprint with "
+    "orchestra_assign_equipment, checking orchestra_get_equipment_assignments first so "
+    "nothing is assigned twice. Solar has no Orchestra blueprint yet: name it, place it and "
+    "label it. Entity ids stay as they are, so existing automations keep working."
 )
 
 
@@ -60,6 +73,13 @@ class OrchestraSetupAPI(llm.API):
                 StartAddingIntegrationTool(),
                 MarkSetupItemDoneTool(),
                 ListDevicesTool(),
+                ListIntegrationsTool(),
+                ListEntitiesTool(),
+                UpdateDeviceTool(),
+                UpdateEntityTool(),
+                GetEquipmentAssignmentsTool(),
+                AssignEquipmentTool(),
+                RemoveEquipmentAssignmentTool(),
             ],
         )
 
@@ -200,14 +220,16 @@ class MarkSetupItemDoneTool(_AdminTool):
 class ListDevicesTool(_AdminTool):
     name = "orchestra_list_devices"
     description = (
-        "List the devices Home Assistant knows, with maker, model, serial number, room and "
-        "integration, optionally only those in one room."
+        "List the devices Home Assistant knows, with device_id, maker, model, serial number, "
+        "room, labels and integration, optionally only those in one room or from one integration."
     )
-    parameters = vol.Schema({vol.Optional("area"): str})
+    parameters = vol.Schema({vol.Optional("area"): str, vol.Optional("integration"): str})
 
     async def _async_run(self, hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
         areas = {a.id: a.name for a in ar.async_get(hass).async_list_areas()}
+        labels = _label_names(hass)
         wanted = (args.get("area") or "").strip().lower()
+        wanted_integration = (args.get("integration") or "").strip().lower()
         devices: list[dict[str, Any]] = []
         for device in dr.async_get(hass).devices.values():
             area = areas.get(device.area_id or "")
@@ -220,20 +242,288 @@ class ListDevicesTool(_AdminTool):
                     if (entry := hass.config_entries.async_get_entry(entry_id)) is not None
                 }
             )
+            if wanted_integration and wanted_integration not in integrations:
+                continue
             devices.append(
                 {
+                    "device_id": device.id,
                     "name": device.name_by_user or device.name,
                     "manufacturer": device.manufacturer,
                     "model": device.model,
                     "serial_number": getattr(device, "serial_number", None),
                     "area": area,
+                    "labels": sorted(labels.get(label, label) for label in device.labels),
                     "integrations": integrations,
                 }
             )
         return {"devices": devices[:MAX_DEVICES], "total": len(devices)}
 
 
+class ListIntegrationsTool(_AdminTool):
+    name = "orchestra_list_integrations"
+    description = "List the integrations that are set up in Home Assistant, with their title and whether they loaded."
+
+    async def _async_run(self, hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "integrations": [
+                {
+                    "integration": entry.domain,
+                    "title": entry.title,
+                    "state": str(getattr(entry.state, "value", entry.state)),
+                }
+                for entry in hass.config_entries.async_entries()
+                if entry.domain not in ("orchestra", "backup", "go2rtc", "sun", "hassio")
+            ]
+        }
+
+
+class ListEntitiesTool(_AdminTool):
+    name = "orchestra_list_entities"
+    description = (
+        "List entities with their name, current state, unit, device class, device and room. "
+        "Filter by device_id, integration, domain (such as 'sensor' or 'climate') or a search "
+        "word; at least one filter is needed on a big home."
+    )
+    parameters = vol.Schema(
+        {
+            vol.Optional("device_id"): str,
+            vol.Optional("integration"): str,
+            vol.Optional("domain"): str,
+            vol.Optional("search"): str,
+            vol.Optional("include_disabled", default=False): bool,
+        }
+    )
+
+    async def _async_run(self, hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
+        ent_reg = er.async_get(hass)
+        dev_reg = dr.async_get(hass)
+        areas = {a.id: a.name for a in ar.async_get(hass).async_list_areas()}
+        device_id = args.get("device_id")
+        integration = (args.get("integration") or "").strip().lower()
+        domain = (args.get("domain") or "").strip().lower()
+        search = (args.get("search") or "").strip().lower()
+        found: list[dict[str, Any]] = []
+        for entry in ent_reg.entities.values():
+            if entry.platform == DOMAIN or (entry.disabled_by and not args.get("include_disabled")):
+                continue
+            if device_id and entry.device_id != device_id:
+                continue
+            if integration and entry.platform != integration:
+                continue
+            if domain and entry.domain != domain:
+                continue
+            state = hass.states.get(entry.entity_id)
+            name = entry.name or (state.attributes.get("friendly_name") if state else None) or entry.original_name
+            device = dev_reg.async_get(entry.device_id) if entry.device_id else None
+            device_name = (device.name_by_user or device.name) if device else None
+            if search and search not in " ".join(
+                str(x).lower() for x in (entry.entity_id, name, device_name) if x
+            ):
+                continue
+            found.append(
+                {
+                    "entity_id": entry.entity_id,
+                    "name": name,
+                    "state": state.state if state else None,
+                    "unit": state.attributes.get("unit_of_measurement") if state else None,
+                    "device_class": entry.device_class or entry.original_device_class,
+                    "device_id": entry.device_id,
+                    "device": device_name,
+                    "area": areas.get(entry.area_id or (device.area_id if device else None) or ""),
+                    "disabled": bool(entry.disabled_by),
+                }
+            )
+        if len(found) > MAX_ENTITIES:
+            return {
+                "entities": found[:MAX_ENTITIES],
+                "total": len(found),
+                "note": "Only the first entities are shown. Narrow it down with a filter.",
+            }
+        return {"entities": found, "total": len(found)}
+
+
+class UpdateDeviceTool(_AdminTool):
+    name = "orchestra_update_device"
+    description = (
+        "Rename a device, move it to a room (created if it doesn't exist yet) and/or add "
+        "labels (created if new), by device_id from orchestra_list_devices. An empty name "
+        "goes back to the maker's name."
+    )
+    parameters = vol.Schema(
+        {
+            vol.Required("device_id"): str,
+            vol.Optional("name"): str,
+            vol.Optional("area"): str,
+            vol.Optional("labels"): [str],
+        }
+    )
+
+    async def _async_run(self, hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
+        dev_reg = dr.async_get(hass)
+        device = dev_reg.async_get(args["device_id"])
+        if device is None:
+            return {"error": "There is no device with that device_id."}
+        changes: dict[str, Any] = {}
+        if "name" in args:
+            changes["name_by_user"] = args["name"].strip() or None
+        if "area" in args:
+            changes["area_id"] = _area_id(hass, args["area"])
+        if args.get("labels"):
+            changes["labels"] = set(device.labels) | {_label_id(hass, name) for name in args["labels"]}
+        if not changes:
+            return {"error": "Nothing to change: give a name, area or labels."}
+        device = dev_reg.async_update_device(device.id, **changes) or dev_reg.async_get(device.id)
+        areas = {a.id: a.name for a in ar.async_get(hass).async_list_areas()}
+        labels = _label_names(hass)
+        return {
+            "device_id": device.id,
+            "name": device.name_by_user or device.name,
+            "area": areas.get(device.area_id or ""),
+            "labels": sorted(labels.get(label, label) for label in device.labels),
+        }
+
+
+class UpdateEntityTool(_AdminTool):
+    name = "orchestra_update_entity"
+    description = (
+        "Rename an entity and/or put it in a different room from its device. The entity_id "
+        "stays the same so automations keep working. An empty name goes back to the default; "
+        "an empty area follows the device's room again."
+    )
+    parameters = vol.Schema({vol.Required("entity_id"): str, vol.Optional("name"): str, vol.Optional("area"): str})
+
+    async def _async_run(self, hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
+        ent_reg = er.async_get(hass)
+        entry = ent_reg.async_get(args["entity_id"])
+        if entry is None:
+            return {"error": "That entity can't be renamed here (it doesn't exist or has no unique id)."}
+        changes: dict[str, Any] = {}
+        if "name" in args:
+            changes["name"] = args["name"].strip() or None
+        if "area" in args:
+            changes["area_id"] = _area_id(hass, args["area"])
+        if not changes:
+            return {"error": "Nothing to change: give a name or area."}
+        entry = ent_reg.async_update_entity(entry.entity_id, **changes)
+        areas = {a.id: a.name for a in ar.async_get(hass).async_list_areas()}
+        return {"entity_id": entry.entity_id, "name": entry.name or entry.original_name, "area": areas.get(entry.area_id or "")}
+
+
+class GetEquipmentAssignmentsTool(_AdminTool):
+    name = "orchestra_get_equipment_assignments"
+    description = (
+        "Show which equipment follows Conductor through the Orchestra blueprints, and the "
+        "kinds of equipment that can be assigned with what each needs."
+    )
+
+    async def _async_run(self, hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
+        from .asset_assignments import ASSET_KINDS, automations_path, describe_assignments
+        from .setup_agent import _read_automations
+
+        automations = await hass.async_add_executor_job(_read_automations, automations_path(hass))
+        return {
+            "assigned": describe_assignments(automations),
+            "kinds": {
+                name: {
+                    "title": kind.title,
+                    "entity": f"{kind.main_input} ({' or '.join(kind.main_domains)})",
+                    "settings": list(kind.entity_inputs) + list(kind.value_inputs),
+                    "help": kind.help,
+                }
+                for name, kind in ASSET_KINDS.items()
+            },
+        }
+
+
+class AssignEquipmentTool(_AdminTool):
+    name = "orchestra_assign_equipment"
+    description = (
+        "Make a piece of equipment follow Conductor by filling its Orchestra blueprint. kind is "
+        "air_conditioning, heat_pump, ev_charger or home_battery; entities is the entity it "
+        "controls (for air_conditioning, every climate to drift, which replaces the list). "
+        "settings holds the kind's optional extras, such as power_switch or charger_switch. "
+        "Updates the existing automation for that equipment instead of adding a second one."
+    )
+    parameters = vol.Schema(
+        {vol.Required("kind"): str, vol.Required("entities"): [str], vol.Optional("settings", default={}): dict}
+    )
+
+    async def _async_run(self, hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
+        from .asset_assignments import AssignmentError, apply_assignment, automations_path
+
+        def domain_of(entity_id: str) -> str | None:
+            return entity_id.split(".", 1)[0] if hass.states.get(entity_id) else None
+
+        return await _async_edit_automations(
+            hass,
+            lambda automations: apply_assignment(
+                automations, args["kind"], list(args["entities"]), dict(args.get("settings") or {}), domain_of
+            ),
+            AssignmentError,
+            automations_path(hass),
+        )
+
+
+class RemoveEquipmentAssignmentTool(_AdminTool):
+    name = "orchestra_remove_equipment_assignment"
+    description = (
+        "Stop a piece of equipment following Conductor, by the automation_id from "
+        "orchestra_get_equipment_assignments. Only Orchestra blueprint automations can be removed."
+    )
+    parameters = vol.Schema({vol.Required("automation_id"): str})
+
+    async def _async_run(self, hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
+        from .asset_assignments import AssignmentError, automations_path, remove_assignment
+
+        return await _async_edit_automations(
+            hass,
+            lambda automations: (
+                remove_assignment(automations, args["automation_id"]),
+                {"removed": args["automation_id"]},
+            ),
+            AssignmentError,
+            automations_path(hass),
+        )
+
+
 # ---------------------------------------------------------------------- helpers
+
+
+async def _async_edit_automations(hass: HomeAssistant, edit: Callable, error_type: type, path: Any) -> dict[str, Any]:
+    from .setup_agent import _read_automations, _write_automations
+
+    automations = await hass.async_add_executor_job(_read_automations, path)
+    try:
+        updated, result = edit(automations)
+    except error_type as err:
+        return {"error": str(err)}
+    await hass.async_add_executor_job(_write_automations, path, updated)
+    if hass.services.has_service("automation", "reload"):
+        await hass.services.async_call("automation", "reload", blocking=True)
+    return result
+
+
+def _area_id(hass: HomeAssistant, name: str) -> str | None:
+    name = name.strip()
+    if not name:
+        return None
+    area_reg = ar.async_get(hass)
+    return (area_reg.async_get_area_by_name(name) or area_reg.async_create(name)).id
+
+
+def _label_names(hass: HomeAssistant) -> dict[str, str]:
+    try:
+        from homeassistant.helpers import label_registry as lr
+    except ImportError:
+        return {}
+    return {label.label_id: label.name for label in lr.async_get(hass).async_list_labels()}
+
+
+def _label_id(hass: HomeAssistant, name: str) -> str:
+    from homeassistant.helpers import label_registry as lr
+
+    label_reg = lr.async_get(hass)
+    return (label_reg.async_get_label_by_name(name.strip()) or label_reg.async_create(name.strip())).label_id
 
 
 def _flow_name(flow: dict[str, Any]) -> str:
