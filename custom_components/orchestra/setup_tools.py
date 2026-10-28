@@ -49,7 +49,12 @@ SETUP_PROMPT = (
     "system, EV charger and home battery to its Orchestra blueprint with "
     "orchestra_assign_equipment, checking orchestra_get_equipment_assignments first so "
     "nothing is assigned twice. Solar has no Orchestra blueprint yet: name it, place it and "
-    "label it. Entity ids stay as they are, so existing automations keep working."
+    "label it. Entity ids stay as they are, so existing automations keep working. "
+    "Orchestra keeps HACS and itself up to date: use orchestra_check_updates and "
+    "orchestra_install_update when asked or when HACS is being set up. Installing an update "
+    "to something that is running needs a restart; ask before calling "
+    "orchestra_restart_home_assistant and warn that this chat starts over afterwards. "
+    "orchestra_apply_theme gives Home Assistant the Conductor look."
 )
 
 
@@ -80,6 +85,10 @@ class OrchestraSetupAPI(llm.API):
                 GetEquipmentAssignmentsTool(),
                 AssignEquipmentTool(),
                 RemoveEquipmentAssignmentTool(),
+                CheckUpdatesTool(),
+                InstallUpdateTool(),
+                RestartHomeAssistantTool(),
+                ApplyThemeTool(),
             ],
         )
 
@@ -484,6 +493,70 @@ class RemoveEquipmentAssignmentTool(_AdminTool):
             AssignmentError,
             automations_path(hass),
         )
+
+
+class CheckUpdatesTool(_AdminTool):
+    name = "orchestra_check_updates"
+    description = "Check GitHub for newer releases of HACS and Orchestra, and whether HACS is set up."
+
+    async def _async_run(self, hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
+        from .component_updates import COMPONENTS, UpdateError, async_check
+
+        out = []
+        for name in COMPONENTS:
+            try:
+                out.append(await async_check(hass, name))
+            except UpdateError as err:
+                out.append({"component": name, "error": str(err)})
+        return {"components": out}
+
+
+class InstallUpdateTool(_AdminTool):
+    name = "orchestra_install_update"
+    description = (
+        "Install the latest release of hacs or orchestra from GitHub. HACS works without "
+        "a restart until it is set up; otherwise the result says a restart is needed."
+    )
+    parameters = vol.Schema({vol.Required("component"): vol.In(["hacs", "orchestra"])})
+
+    async def _async_run(self, hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
+        from .component_updates import UpdateError, async_install
+
+        try:
+            return await async_install(hass, args["component"])
+        except UpdateError as err:
+            return {"error": str(err)}
+
+
+class RestartHomeAssistantTool(_AdminTool):
+    name = "orchestra_restart_home_assistant"
+    description = (
+        "Restart Home Assistant so installed updates take effect. Only after the person says "
+        "yes: it takes a minute or two and this chat starts over."
+    )
+
+    async def _async_run(self, hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
+        from homeassistant.helpers.event import async_call_later
+
+        async def _restart(_now: Any) -> None:
+            await hass.services.async_call("homeassistant", "restart")
+
+        # A moment's delay so this answer reaches the person first
+        async_call_later(hass, 5, _restart)
+        return {"restarting": True, "message": "Home Assistant restarts in a few seconds."}
+
+
+class ApplyThemeTool(_AdminTool):
+    name = "orchestra_apply_theme"
+    description = "Install the Conductor theme (light and dark) and make it Home Assistant's default theme."
+
+    async def _async_run(self, hass: HomeAssistant, args: dict[str, Any]) -> dict[str, Any]:
+        from .theme_installer import async_install_theme
+
+        try:
+            return await async_install_theme(hass, apply=True)
+        except Exception as err:
+            return {"error": f"The theme couldn't be applied: {err}"}
 
 
 # ---------------------------------------------------------------------- helpers

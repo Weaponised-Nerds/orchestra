@@ -241,6 +241,18 @@ async def _async_start_chat_agent(hass: Any) -> None:
         _LOGGER.warning("Orchestra setup assistant not started: %s", err)
 
 
+async def _async_restore_theme(hass: Any) -> None:
+    """Keep the Conductor theme loaded where configuration.yaml doesn't load the themes folder."""
+    if not hasattr(hass, "http"):
+        return
+    try:
+        from .theme_installer import async_restore_theme
+
+        await async_restore_theme(hass)
+    except Exception as err:  # the theme is cosmetic
+        _LOGGER.debug("Conductor theme not restored: %s", err)
+
+
 async def async_setup_entry(hass: Any, entry: Any) -> bool:
     """Set up Orchestra from a Home Assistant ConfigEntry."""
     hass.data.setdefault(DOMAIN, {})
@@ -289,6 +301,7 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
     await _async_start_setup_agent(hass)
     _async_register_setup_tools(hass)
     await _async_start_chat_agent(hass)
+    await _async_restore_theme(hass)
     await async_setup_hvac_drift(hass)
     await async_setup_heat_pump_control(hass)
 

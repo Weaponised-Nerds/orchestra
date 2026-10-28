@@ -77,6 +77,7 @@ MAX_STEPS_PER_FLOW = 4
 
 PUNCH_HACS = "hacs"
 PUNCH_NO_USERS = "users"
+HACS_CHECK_SECONDS = 24 * 3600
 USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,31}$")
 MIN_PASSWORD_LENGTH = 8
 AGENT_SIGN_OUT_SECONDS = 3
@@ -192,6 +193,9 @@ class OrchestraSetupAgent:
             report["organized"] = await self.async_organize_devices()
             report["automations"] = await self.async_prefill_automations()
             self._async_check_hacs()
+            await self._async_update_idle_hacs()
+            if first:
+                await self._async_apply_theme()
             if first:
                 report["users"] = list(self.state.get("logins_created", []))
                 await self.async_retire_agent_credentials()
@@ -323,13 +327,40 @@ class OrchestraSetupAgent:
             PunchItem(
                 PUNCH_HACS,
                 "Connect HACS to GitHub",
-                "HACS is installed so Orchestra can update itself. Open Settings → Devices & "
-                "services → Add integration → HACS, tick the boxes and sign in to GitHub with "
-                "the code it shows. Then add Weaponised-Nerds/orchestra under HACS → Custom "
-                "repositories (type: Integration).",
+                "HACS adds community integrations that Home Assistant doesn't include. It's "
+                "already installed and kept up to date by Orchestra, but needs a one-off GitHub "
+                "sign-in: the setup assistant can start it and read out the code to enter.",
             ),
             domain="hacs",
         )
+
+    async def _async_update_idle_hacs(self) -> None:
+        """Keep HACS current while nobody has set it up: nothing runs it yet, so no restart."""
+        if self.hass.config_entries.async_entries("hacs"):
+            return
+        if time.time() - float(self.state.get("hacs_checked_at") or 0) < HACS_CHECK_SECONDS:
+            return
+        self.state["hacs_checked_at"] = time.time()
+        from .component_updates import async_check, async_install
+
+        try:
+            status = await async_check(self.hass, "hacs")
+            if status["update_available"]:
+                await async_install(self.hass, "hacs", status["latest"])
+        except Exception as err:  # offline, or GitHub is down: try again tomorrow
+            _LOGGER.info("Orchestra could not update HACS: %s", err)
+
+    async def _async_apply_theme(self) -> None:
+        """Give a fresh box the Conductor look, once."""
+        if self.state.get("theme_applied"):
+            return
+        from .theme_installer import async_install_theme
+
+        try:
+            await async_install_theme(self.hass, apply=True)
+        except Exception as err:  # a theme is never worth failing setup over
+            _LOGGER.info("Orchestra could not apply the Conductor theme: %s", err)
+        self.state["theme_applied"] = True
 
     async def async_setup_users(self) -> list[str]:
         """Create the plan's human logins, then retire the image's agent credentials."""
